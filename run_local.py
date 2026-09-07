@@ -50,7 +50,7 @@ def main():
 
     # Spawn MLflow UI
     print(" - Booting MLflow tracking server on port 5000...")
-    mlflow_cmd = [sys.executable, "-m", "mlflow", "ui", "--port", "5000", "--host", "127.0.0.1", "--backend-store-uri", "sqlite:///mlflow.db"]
+    mlflow_cmd = [sys.executable, "-m", "mlflow", "ui", "--port", "5000", "--host", "127.0.0.1", "--backend-store-uri", "sqlite:///data/mlflow.db"]
     mlflow_proc = subprocess.Popen(
         mlflow_cmd,
         env=env,

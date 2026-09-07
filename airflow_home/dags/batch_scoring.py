@@ -24,7 +24,7 @@ def run_batch_scoring(ds: str):
 
     print(f"Found {pending_count} pending reviews. Starting batch prediction...")
     df_pending['cleaned_text'] = df_pending['review_text'].apply(clean_text)
-    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
     model = mlflow.sklearn.load_model("models:/ecommerce-sentiment-model@champion")
     
     df_pending['predicted_sentiment'] = model.predict(df_pending['cleaned_text'])

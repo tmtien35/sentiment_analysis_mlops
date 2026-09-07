@@ -15,7 +15,7 @@ import mlflow.sklearn
 from mlflow.tracking import MlflowClient
 
 def main():
-    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
     mlflow.set_experiment("ecommerce-sentiment-analysis")
     
     print("Loading datasets...")

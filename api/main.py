@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
     try:
         print("Loading registered model '@champion' from MLflow Registry...")
         # Point to our local SQLite DB tracking store
-        mlflow.set_tracking_uri("sqlite:///mlflow.db")
+        mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
         model_uri = "models:/ecommerce-sentiment-model@champion"
         model = mlflow.sklearn.load_model(model_uri)
         print("Model loaded successfully!")

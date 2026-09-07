@@ -25,11 +25,11 @@ services:
   mlflow:
     build: .
     container_name: mlflow_server
-    command: mlflow server --backend-store-uri sqlite:///app/mlflow.db --default-artifact-root /app/mlruns --host 0.0.0.0 --port 5000
+    command: mlflow server --backend-store-uri sqlite:///app/data/mlflow.db --default-artifact-root /app/mlruns --host 0.0.0.0 --port 5000
     ports:
       - "5000:5000"
     volumes:
-      - ./mlflow.db:/app/mlflow.db
+      - ./data:/app/data
       - ./mlruns:/app/mlruns
     networks:
       - mlops_network
@@ -45,7 +45,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./mlflow.db:/app/mlflow.db
+      - ./data:/app/data
       - ./mlruns:/app/mlruns
     depends_on:
       postgres:
@@ -93,7 +93,6 @@ services:
     volumes:
       - ./airflow_home:/app/airflow_home
       - ./data:/app/data
-      - ./mlflow.db:/app/mlflow.db
       - ./mlruns:/app/mlruns
     depends_on:
       postgres:
@@ -116,7 +115,6 @@ services:
     volumes:
       - ./airflow_home:/app/airflow_home
       - ./data:/app/data
-      - ./mlflow.db:/app/mlflow.db
       - ./mlruns:/app/mlruns
     depends_on:
       airflow-webserver:
