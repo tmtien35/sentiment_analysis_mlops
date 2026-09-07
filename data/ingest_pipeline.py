@@ -112,23 +112,21 @@ def run_backfill():
         run_batch_scoring(ds)
     print("✅ SUCCESS: 25-Day stable, real-data history pre-populated offline!")
 
-def ingest_day(ds):
+def ingest_unprocessed():
     print("================================================================")
-    print(f"🛍️  ETL PIPELINE: Ingesting Batch for '{ds}' (Local-Only)")
+    print("🛍️  ETL PIPELINE: Ingesting Outstanding Reviews (On-Demand)")
     print("================================================================")
-    print(f" - Executing batch scoring for {ds}...")
-    run_batch_scoring(ds)
+    print(" - Scanning database and executing batch scoring...")
+    run_batch_scoring()
     print("✅ SUCCESS: Ingestion complete!")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--backfill", action="store_true")
-    group.add_argument("--ingest-daily", action="store_true")
-    parser.add_argument("--date", type=str)
+    group.add_argument("--ingest", action="store_true")
     
     args = parser.parse_args()
-    target_date = args.date if args.date else datetime.now().strftime("%Y-%m-%d")
     
     if args.backfill: run_backfill()
-    elif args.ingest_daily: ingest_day(target_date)
+    elif args.ingest: ingest_unprocessed()

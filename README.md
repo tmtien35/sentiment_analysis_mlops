@@ -90,9 +90,31 @@ docker compose up -d --build
     *   **Orchestration UI (Airflow):** [http://localhost:8080](http://localhost:8080) *(Username: `mlops` \| Password: `mlops`)*
     *   **Experiment Registry (MLflow):** [http://localhost:5000](http://localhost:5000)
     *   **On-Demand Serving (FastAPI Docs):** [http://localhost:8000/docs](http://localhost:8000/docs)
-*   **How to Stop (Single Action):** To cleanly terminate all 6 background containers and free up ports, simply run:
+*   **How to Stop (Keep Data):** To cleanly stop all background containers while preserving your persistent database history, run:
     ```bash
     docker compose down
+    ```
+
+*   **How to Update Code (Zero Data Loss - Standard Update Playbook):**
+    Each time you push code updates to GitHub and pull them on your GCP VM, simply run this single command. Docker Compose V2 will hot-recreate only the changed services in 2 seconds while preserving 100% of your persistent PostgreSQL history, users, predictions, and drift metrics:
+    ```bash
+    git pull && docker compose up -d --build
+    ```
+
+*   **How to Completely Reset & Re-rehearse (Wipe Data - Clean Slate Setup):**
+    If you want to wipe all persistent database history (for another rehearsal or presentation) and backfill 25 days of stable historical data from scratch, run:
+    ```bash
+    # 1. Stop containers and delete PostgreSQL volumes
+    docker compose down -v
+    
+    # 2. Bootstrap and train the initial model (Run once on fresh database)
+    docker compose run --rm fastapi python ml/train_model.py
+    
+    # 3. Seed the 25-day historical backfill into Postgres
+    docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
+    
+    # 4. Bring the serving servers back online
+    docker compose up -d --build
     ```
 
 ---
@@ -196,7 +218,7 @@ Simply press **`[Ctrl + C]`** in that terminal window. This will automatically t
 ### **Individual Pipeline Component Scripts:**
 If you need to execute individual pipeline steps manually, ensure `PYTHONPATH` is set to your project root:
 
-1.  **Run Cloud Ingestion & Backfill:** `python data/ingest_pipeline.py --backfill` *(Triggers the live cloud-scraper to fetch real reviews from Hugging Face for all 25 days and logs them to the database)*.
+1.  **Run Cloud Ingestion & Backfill:** `python data/ingest_pipeline.py --backfill` *(Generates and scores 25 days of stable historical reviews offline using high-quality local templates to establish the baseline and pre-populate your database and dashboard charts)*.
 2.  **Submit Customer Reviews:** `python data/submit_review.py` *(Spawns the storefront CLI app to submit custom reviews into the database pending scoring)*.
 3.  **Train & Select Champion:** `python ml/train_model.py` *(Runs the automated model retraining, registers Version, and promotes to `@champion`)*.
 4.  **Test API Locally:** `python api/main.py` *(Launches FastAPI on `:8000`)*.

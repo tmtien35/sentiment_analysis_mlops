@@ -5,7 +5,27 @@ from sqlalchemy import create_engine, text
 def get_db_engine():
     return create_engine(os.environ.get("DATABASE_URL", "sqlite:///data/results.db"))
 
-def run_batch_scoring(ds: str):
+def run_batch_scoring(ds: str = None):
+    engine = get_db_engine()
+    if ds is None:
+        print("Scanning 'store_reviews' for all distinct unprocessed dates...")
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT DISTINCT review_date FROM store_reviews WHERE is_processed = 0 ORDER BY review_date ASC"))
+                unprocessed_dates = [r[0] for r in res.fetchall() if r[0]]
+            if not unprocessed_dates:
+                print("✅ STABLE: No pending reviews found in the entire database. Skipping.")
+                return
+            
+            print(f"Found pending reviews across {len(unprocessed_dates)} distinct date(s): {unprocessed_dates}")
+            for d in unprocessed_dates:
+                print(f"\n---> Running batch scoring automatically for date: {d}")
+                run_batch_scoring(d)
+            print("\n✅ SUCCESS: All outstanding reviews scored and locked successfully!")
+            return
+        except Exception as e:
+            print(f"Error querying pending dates: {e}")
+            return
     from ml.preprocess import clean_text
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     urllib3.util.ssl_.create_urllib3_context = lambda *args, **k: ssl._create_unverified_context()

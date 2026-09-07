@@ -50,39 +50,25 @@ def main():
     parser = argparse.ArgumentParser(description="Submit live reviews into the Storefront database.")
     parser.add_argument("--text", type=str, help="Content of the customer product review (CLI argument mode)")
     parser.add_argument("--category", type=str, choices=["apparel", "kitchen", "electronics", "sports", "other"], default="other")
-    parser.add_argument("--date", type=str, help="Review date in YYYY-MM-DD format")
     
     args = parser.parse_args()
+    today_str = datetime.now().strftime("%Y-%m-%d")
     
     # Direct argument mode (used by test suites/one-off scripts)
     if args.text:
-        date_str = args.date if args.date else datetime.now().strftime("%Y-%m-%d")
         review_id = f"user_{str(uuid.uuid4())[:8]}"
         inserted = submit_batch_reviews([{
             "review_id": review_id,
-            "review_date": date_str,
+            "review_date": today_str,
             "category": args.category,
             "review_text": args.text
         }])
         if inserted:
-            print(f"✅ Submitted single review: {review_id} for {date_str} successfully!")
+            print(f"✅ Submitted single review: {review_id} for {today_str} successfully!")
         return
 
-    # Interactive Continuous Loop Mode
-    print("\n[STEP 1] Set Session Date")
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    print(f"Enter review date (YYYY-MM-DD) [{today_str}]:")
-    date_input = input("> ").strip()
-    date_str = date_input if date_input else today_str
-    
-    # Validate date
-    try:
-        datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
-        print("❌ Error: Invalid date format. Use YYYY-MM-DD.")
-        return
-
-    print("\n[STEP 2] Enter Reviews Continuously (Leave review empty or type 'exit' to submit)")
+    # Interactive Continuous Loop Mode (Completely simplified - No date prompt!)
+    print("\nEnter Reviews Continuously (Leave review empty or type 'exit' to submit)")
     print("-" * 66)
     
     categories = ["electronics", "kitchen", "apparel", "sports", "other"]
@@ -102,7 +88,7 @@ def main():
             review_id = f"user_{str(uuid.uuid4())[:8]}"
             pending_list.append({
                 "review_id": review_id,
-                "review_date": date_str,
+                "review_date": today_str,
                 "category": category,
                 "review_text": text
             })
@@ -117,8 +103,8 @@ def main():
             for r in pending_list:
                 print(f" 📦 [{r['category'].upper()}] \"{r['review_text']}\"")
             print("==================================================================")
-            print("👉 Run your daily ingestion pipeline to analyze and score them:")
-            print(f"   python data/ingest_pipeline.py --ingest-daily --date {date_str}")
+            print("👉 Run your ingestion pipeline to analyze and score them:")
+            print("   python data/ingest_pipeline.py --ingest")
         else:
             print("\nNo reviews entered. Exited cleanly.")
             

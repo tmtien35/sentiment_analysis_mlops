@@ -54,7 +54,7 @@ docker compose up -d --build
         *   `Review #3 Text:` $\rightarrow$ Simply press **Enter** (leave empty) to finish and submit.
     *(Both reviews are now transactionally saved in your shop database table `store_reviews` with status `is_processed = 0`)*.
 
-2.  **Run Ingestion:** In your terminal, process today's pending customer reviews:
+2.  **Run Ingestion:** In your terminal, automatically process and score all outstanding reviews:
     ```bash
     python data/ingest_pipeline.py --ingest-daily --date 2026-09-04
     ```
@@ -98,11 +98,33 @@ docker compose up -d --build
 3.  **UI & Self-Healing Verification:** 
     *   **Refresh Streamlit:** Watch the dashboard status instantly flip to a flashing red **`⚠️ DRIFT ALERT`**! The PSI Score plot spikes into the warning zone.
     *   **Alert Generation:** Open the local HTML email generated at `data/alerts/drift_alert_2026_09_05.html` in your browser.
-    *   **Self-Healing Log:** Look at your server console. Show the judges how the system **automatically detected the drift on 2026-09-05, triggered retraining, read the drifted reviews directly from the SQL database, auto-labeled them, evaluated the candidate model, registered version, and promoted it to `@champion` completely hands-free!**
+    *   **Self-Healing Log:** Look at your server console. Show the judges how the system **automatically automatically detected the drift, trigger retraining, and update the champion model, triggered retraining, read the drifted reviews directly from the SQL database, auto-labeled them, evaluated the candidate model, registered version, and promoted it to `@champion` completely hands-free!**
         `🚨 [SELF-HEALING] Data Drift Detected! Triggering automated retraining...`
         `🚨 [SELF-HEALING] Retraining completed successfully! Model updated to @champion.`
 
 ---
 
-## 🔄 How to Repeat the Demo
-To reset everything back to the beginning for another presentation, simply stop your servers and run **Step 0** again. It is 100% idempotent, robust, and can be repeated infinite times!
+## 🔄 Presentation Rehearsal & Update Playbook
+
+### **How to Update Code (Zero Data Loss - Standard Update):**
+If you make code or design updates on your laptop, push them to GitHub, and pull them on your Google Cloud VM, simply run this single command. Docker Compose V2 will hot-recreate only the modified container services in 2 seconds while preserving 100% of your persistent PostgreSQL history, predictions, and drift logs:
+```bash
+git pull && docker compose up -d --build
+```
+
+### **How to Completely Reset & Re-rehearse (Wipe Data - Clean Slate):**
+If you want to clear your persistent database (for another presentation or rehearsal) and backfill 25 days of stable historical data from scratch, run:
+```bash
+# 1. Stop containers and delete PostgreSQL volumes
+docker compose down -v
+
+# 2. Bootstrap model training
+docker compose run --rm fastapi python ml/train_model.py
+
+# 3. Seed 25-day historical backfill
+docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
+
+# 4. Bring serving servers back online
+docker compose up -d --build
+```
+This is fully idempotent, robust, and can be repeated infinite times!
