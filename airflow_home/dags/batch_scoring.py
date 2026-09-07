@@ -89,7 +89,7 @@ def run_batch_scoring(ds: str):
         # Idempotently update drift metrics for this batch run (overwrites previously recorded metrics for today)
         conn.execute(text("DELETE FROM drift_metrics WHERE batch_date = :ds"), {"ds": ds})
         conn.execute(text("INSERT INTO drift_metrics VALUES (:batch_date, :row_count, :avg_confidence, :psi_score, :drift_detected)"), {
-            "batch_date": ds, "row_count": cumulative_count, "avg_confidence": avg_confidence, "psi_score": psi_score, "drift_detected": 1 if drift_detected else 0
+            "batch_date": ds, "row_count": int(cumulative_count), "avg_confidence": float(avg_confidence), "psi_score": float(psi_score), "drift_detected": 1 if drift_detected else 0
         })
         
         # State-Locking: Mark only the pending reviews as processed
