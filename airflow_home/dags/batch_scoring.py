@@ -17,7 +17,8 @@ def run_batch_scoring(ds: str):
     
     print(f"Scanning 'store_reviews' for unprocessed on {ds}...")
     with engine.connect() as conn:
-        df_pending = pd.read_sql_query("SELECT * FROM store_reviews WHERE is_processed = 0 AND review_date = :ds", con=conn.connection, params={"ds": ds})
+        res = conn.execute(text("SELECT * FROM store_reviews WHERE is_processed = 0 AND review_date = :ds"), {"ds": ds})
+        df_pending = pd.DataFrame(res.fetchall(), columns=res.keys())
     pending_count = len(df_pending)
     if pending_count == 0:
         print(f"✅ STABLE: No pending reviews found for date {ds}. Skipping.")
@@ -47,7 +48,8 @@ def run_batch_scoring(ds: str):
 
     # Retrieve ALL predictions for date ds to compute cumulative daily metrics
     with engine.connect() as conn:
-        df_all = pd.read_sql_query("SELECT * FROM predictions WHERE review_date = :ds", con=conn.connection, params={"ds": ds})
+        res_all = conn.execute(text("SELECT * FROM predictions WHERE review_date = :ds"), {"ds": ds})
+        df_all = pd.DataFrame(res_all.fetchall(), columns=res_all.keys())
     cumulative_count = len(df_all)
     avg_confidence = float(np.mean(df_all['confidence']))
     
