@@ -23,8 +23,8 @@ def load_data():
             df_drift = pd.read_sql("SELECT * FROM drift_metrics ORDER BY batch_date ASC", con=conn)
             try:
                 df_logs = pd.read_sql("SELECT * FROM inference_logs WHERE review_text != 'init' ORDER BY timestamp DESC", con=conn)
-        except Exception:
-            df_logs = pd.DataFrame()
+            except Exception:
+                df_logs = pd.DataFrame()
         return df_preds, df_drift, df_logs, None
     except Exception as e:
         return None, None, None, str(e)
