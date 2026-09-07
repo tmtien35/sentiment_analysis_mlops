@@ -1,0 +1,48 @@
+# ====================================================================
+# 🛍️ MLOps Capstone: Production-Grade .gitignore
+# ====================================================================
+
+# 🐍 Python Byte-code & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# 💻 Environments & Virtualenvs
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 🎨 IDE & System Specific
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 💾 Local Databases & Transaction Logs
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+
+# 🌪️ Apache Airflow Configuration, Metadata & Logs (Generated Locally)
+airflow_home/airflow.db
+airflow_home/airflow.cfg
+airflow_home/webserver_config.py
+airflow_home/logs/
+airflow_home/*.log
+
+# 🧠 MLflow Experiment Tracking & Model Artifacts
+mlruns/
+mlflow.db
+
+# 🛍️ Local Database persistence & Generated Alerts
+data/results.db
+data/cloud_production.csv
+data/alerts/
+data/incoming/

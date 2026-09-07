@@ -1,0 +1,36 @@
+# Core ML & Data Manipulation
+pandas==2.2.3
+scikit-learn==1.9.0
+pyarrow==25.0.1
+numpy==2.5.2
+matplotlib==3.11.1
+
+# Experiment Tracking & Model Registry
+mlflow==2.19.0
+
+# Batch Orchestration (used in containerized Airflow)
+# Note: For local linting/imports, but full Airflow executes in Docker.
+apache-airflow==2.10.0
+
+# Frontend & Analytics Dashboard
+streamlit==1.38.0
+
+# On-Demand Serving API
+fastapi==0.115.0
+uvicorn==0.30.6
+
+# Database Connectivity
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.35
+
+# Testing & Quality Assurance
+pytest==8.3.3
+flake8==7.1.1
+
+# HTTP and SSL Bypass dependencies
+requests==2.34.2
+urllib3==2.7.0
+datasets==5.0.1
+fsspec==2026.6.0
+beautifulsoup4==4.12.3
+

@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Database Service
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: mlops
+      POSTGRES_PASSWORD: mlops
+      POSTGRES_DB: results_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - mlops_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlops -d results_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. MLflow Tracking & Model Registry Service
+  mlflow:
+    build: .
+    container_name: mlflow_server
+    command: mlflow server --backend-store-uri sqlite:///app/mlflow.db --default-artifact-root /app/mlruns --host 0.0.0.0 --port 5000
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow.db:/app/mlflow.db
+      - ./mlruns:/app/mlruns
+    networks:
+      - mlops_network
+
+  # 3. FastAPI serving endpoint
+  fastapi:
+    build: .
+    container_name: fastapi_api
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
+      FASTAPI_URL: http://localhost:8000/predict
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./mlflow.db:/app/mlflow.db
+      - ./mlruns:/app/mlruns
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    networks:
+      - mlops_network
+
+  # 4. Streamlit Interactive Dashboard
+  streamlit:
+    build: .
+    container_name: streamlit_dashboard
+    command: streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+    environment:
+      DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
+      FASTAPI_URL: http://fastapi:8000/predict
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fastapi:
+        condition: service_started
+    networks:
+      - mlops_network
+
+  # 5. Apache Airflow Webserver
+  airflow-webserver:
+    build: .
+    container_name: airflow_webserver
+    command: >
+      bash -c "airflow db init && 
+      airflow users create --username mlops --password mlops --firstname MLOps --lastname Student --role Admin --email student@mlops.com && 
+      airflow webserver --port 8080"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////app/airflow_home/airflow.db"
+      DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow_home:/app/airflow_home
+      - ./data:/app/data
+      - ./mlflow.db:/app/mlflow.db
+      - ./mlruns:/app/mlruns
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    networks:
+      - mlops_network
+
+  # 6. Apache Airflow Scheduler
+  airflow-scheduler:
+    build: .
+    container_name: airflow_scheduler
+    command: airflow scheduler
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////app/airflow_home/airflow.db"
+      DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
+    volumes:
+      - ./airflow_home:/app/airflow_home
+      - ./data:/app/data
+      - ./mlflow.db:/app/mlflow.db
+      - ./mlruns:/app/mlruns
+    depends_on:
+      airflow-webserver:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    networks:
+      - mlops_network
+
+volumes:
+  postgres_data:
+  
+networks:
+  mlops_network:
+    name: mlops_network
+    driver: bridge
