@@ -19,10 +19,10 @@ def load_data():
     engine = get_db_engine()
     try:
         with engine.connect() as conn:
-            df_preds = pd.read_sql("SELECT * FROM predictions", con=conn)
-            df_drift = pd.read_sql("SELECT * FROM drift_metrics ORDER BY batch_date ASC", con=conn)
+            df_preds = pd.read_sql("SELECT * FROM predictions", con=conn.connection)
+            df_drift = pd.read_sql("SELECT * FROM drift_metrics ORDER BY batch_date ASC", con=conn.connection)
             try:
-                df_logs = pd.read_sql("SELECT * FROM inference_logs WHERE review_text != 'init' ORDER BY timestamp DESC", con=conn)
+                df_logs = pd.read_sql("SELECT * FROM inference_logs WHERE review_text != 'init' ORDER BY timestamp DESC", con=conn.connection)
             except Exception:
                 df_logs = pd.DataFrame()
         return df_preds, df_drift, df_logs, None
