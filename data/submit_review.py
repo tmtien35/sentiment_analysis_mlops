@@ -79,7 +79,7 @@ def main():
         while True:
             print(f"\nReview #{idx} Text:")
             text = input("> ").strip()
-            if not text or text.lower() == "exit":
+            if not text.strip() or "exit" in text.lower():
                 break
             
             # Automatically assign a distributed category behind the scenes!

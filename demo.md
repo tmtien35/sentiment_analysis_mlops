@@ -104,6 +104,33 @@ docker compose up -d --build
 
 ---
 
+## 🛠️ Act III: Manual Incident Response & Overrides (Control Panel)
+
+Show the judges how you can actively manage production alerts and bypass model predictions in real-time directly from your **Streamlit Sidebar Control Panel**:
+
+### **1. Test the "Acknowledge & Mute Alert" (Tắt báo động):**
+1.  Under **MLOps Incident Control Panel** in the sidebar, click the **`Acknowledge & Mute Alert`** button.
+2.  **Result:** Streamlit immediately updates. The flashing red **`⚠️ DRIFT ALERT`** status card flips into a calm, yellow **`⚠️ DRIFT MUTED`**, proving you've acknowledged the flash sale / event and silenced the alarm cleanly in PostgreSQL!
+
+### **2. Test the "Trigger Retrain Manual" (Cưỡng bức học máy):**
+1.  In the sidebar, under **Continuous Training**, click the **`Trigger Retrain Manual`** button.
+2.  Watch the spinner run. In under 10 seconds, it will complete and pop a green:
+    `🏆 Model Retrained Successfully! New @champion promoted.`
+3.  **Result:** The background system executed `ml/train_model.py`, registered a brand new model version (e.g. Version 11), and automatically pointed the `@champion` alias to it! You can verify this Version increase live on **MLflow** (`http://[IP_Google_Cloud]:5000`).
+
+### **3. Test the "Switch to Fallback Rules" (Gạt cầu chì ngắt AI - Circuit Breaker):**
+Let's simulate a situation where your AI model behaves erratically, and you need to bypass it instantly to ensure business continuity.
+1.  In the sidebar, click the **Active Serving Mode** dropdown and change it from `Machine Learning Model` to **`Rule-Based Fallback Rules`**.
+2.  A yellow warning box appears: `🛡️ Safe-Mode Active: ML Model Bypassed!`.
+3.  Go to **Live On-Demand Scoring**, type: `"The checkout payment-loop is crashing and poor DelayGator shipping is stuck!"` and click **Predict Sentiment**.
+4.  **Result:** 
+    *   It instantly returns **`NEGATIVE` (99.0% confidence)**.
+    *   Scroll down to the **Live API Traffic Monitor** table. You will see that the logged record's `cleaned_text` has **`[RULE-BASED FALLBACK]`** appended to it!
+    *   This proves that the serving API **completely bypassed the ML model** and ran your safe, deterministic rule-based fallback algorithm natively!
+5.  Toggle the mode back to `Machine Learning Model` once you are done to re-enable your high-performing AI.
+
+---
+
 ## 🔄 Presentation Rehearsal & Update Playbook
 
 ### **How to Update Code (Zero Data Loss - Standard Update):**

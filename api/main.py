@@ -23,6 +23,36 @@ def get_db_engine():
     db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
     return create_engine(db_url)
 
+def initialize_settings_table(conn):
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+    """))
+    # Seed default value if empty
+    res = conn.execute(text("SELECT value FROM system_settings WHERE key = 'serving_mode'"))
+    if res.fetchone() is None:
+        conn.execute(text("INSERT INTO system_settings VALUES ('serving_mode', 'ml')"))
+
+def get_setting(conn, key, default):
+    res = conn.execute(text("SELECT value FROM system_settings WHERE key = :key"), {"key": key})
+    row = res.fetchone()
+    return row[0] if row else default
+
+def fallback_rule_classifier(text: str) -> dict:
+    txt_lower = text.lower()
+    pos_words = ["love", "happy", "great", "excellent", "good", "perfect", "satisfied", "amazing"]
+    neg_words = ["delaygator", "payment-loop", "checkout-freeze", "poor", "terrible", "horrible", "mal", "pésima", "broke", "crash", "stuck"]
+    pos_count = sum(1 for w in pos_words if w in txt_lower)
+    neg_count = sum(1 for w in neg_words if w in txt_lower)
+    if neg_count > pos_count:
+        return {"predicted_sentiment": "negative", "confidence": 0.99}
+    elif pos_count > neg_count:
+        return {"predicted_sentiment": "positive", "confidence": 0.99}
+    else:
+        return {"predicted_sentiment": "neutral", "confidence": 0.50}
+
 def log_prediction_to_db(review_text, cleaned_text, sentiment, confidence):
     """Log real-time API predictions into a dedicated inference_logs table dynamically."""
     from datetime import datetime

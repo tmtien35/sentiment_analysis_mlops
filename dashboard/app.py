@@ -2,7 +2,7 @@ import os
 import streamlit as st
 import pandas as pd
 import requests
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 st.set_page_config(
     page_title="Inference Monitor",
@@ -13,6 +13,35 @@ st.set_page_config(
 def get_db_engine():
     db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
     return create_engine(db_url)
+
+def initialize_settings_table(conn):
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+    """))
+    # Seed default value if empty
+    res = conn.execute(text("SELECT value FROM system_settings WHERE key = 'serving_mode'"))
+    if res.fetchone() is None:
+        conn.execute(text("INSERT INTO system_settings VALUES ('serving_mode', 'ml')"))
+
+def get_setting(conn, key, default):
+    try:
+        initialize_settings_table(conn)
+        res = conn.execute(text("SELECT value FROM system_settings WHERE key = :key"), {"key": key})
+        row = res.fetchone()
+        return row[0] if row else default
+    except Exception:
+        return default
+
+def set_setting(conn, key, value):
+    try:
+        initialize_settings_table(conn)
+        conn.execute(text("DELETE FROM system_settings WHERE key = :key"), {"key": key})
+        conn.execute(text("INSERT INTO system_settings VALUES (:key, :value)"), {"key": key, "value": value})
+    except Exception as e:
+        print(f"Error setting: {e}")
 
 @st.cache_data(ttl=2)
 def load_data():
@@ -28,6 +57,82 @@ def load_data():
         return df_preds, df_drift, df_logs, None
     except Exception as e:
         return None, None, None, str(e)
+
+# ------------------------------------------------------------------
+# 🛠️ MLOps Incident Control Panel (Sidebar)
+# ------------------------------------------------------------------
+st.sidebar.markdown("## 🛠️ MLOps Incident Control Panel")
+st.sidebar.markdown("Use these manual overrides to respond to production incidents in real-time.")
+
+engine = get_db_engine()
+
+# 1. Circuit Breaker (ML vs Fallback)
+try:
+    with engine.connect() as conn:
+        current_mode = get_setting(conn, "serving_mode", "ml")
+except Exception:
+    current_mode = "ml"
+
+mode_index = 0 if current_mode == "ml" else 1
+new_mode = st.sidebar.selectbox(
+    "Active Serving Mode:",
+    ["Machine Learning Model", "Rule-Based Fallback Rules"],
+    index=mode_index
+)
+target_mode_val = "ml" if new_mode == "Machine Learning Model" else "fallback"
+
+if target_mode_val != current_mode:
+    try:
+        with engine.begin() as conn:
+            set_setting(conn, "serving_mode", target_mode_val)
+        st.sidebar.success(f"Bypassed serving mode to: {target_mode_val.upper()}")
+        st.rerun()
+    except Exception as e:
+        st.sidebar.error(f"Failed to toggle: {e}")
+
+# Display active mode indicator
+if target_mode_val == "fallback":
+    st.sidebar.warning("🛡️ Safe-Mode Active: ML Model Bypassed!")
+
+# 2. Trigger Retraining
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🧠 Continuous Training")
+if st.sidebar.button("Trigger Retrain Manual"):
+    with st.spinner("Retraining model in background..."):
+        import subprocess, sys
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.getcwd()
+        try:
+            res = subprocess.run([sys.executable, "ml/train_model.py"], env=env, capture_output=True, text=True)
+            if res.returncode == 0:
+                st.sidebar.success("🏆 Model Retrained Successfully! New @champion promoted.")
+                st.rerun()
+            else:
+                st.sidebar.error(f"Retrain Failed: {res.stderr}")
+        except Exception as e:
+            st.sidebar.error(f"Error executing retrain: {e}")
+
+# 3. Mute/Acknowledge Alert
+# Only show this if there is an active alert!
+try:
+    latest_drift_val = df_drift.iloc[-1]
+    is_drifted_val = latest_drift_val['drift_detected'] == 1
+    drift_date_val = latest_drift_val['batch_date']
+except Exception:
+    is_drifted_val = False
+    drift_date_val = None
+
+if is_drifted_val:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🚨 Alert Acknowledgement")
+    if st.sidebar.button("Acknowledge & Mute Alert"):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE drift_metrics SET drift_detected = 2 WHERE batch_date = :ds"), {"ds": drift_date_val})
+            st.sidebar.success("Alert Muted successfully!")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Failed to mute: {e}")
 
 st.title("🛍️ E-Commerce Review Sentiment & Drift Monitor")
 st.markdown("---")
@@ -48,6 +153,7 @@ else:
     
     latest_drift = df_drift.iloc[-1]
     is_drifted = latest_drift['drift_detected'] == 1
+    is_muted = latest_drift['drift_detected'] == 2
     latest_psi = latest_drift['psi_score']
     
     col1, col2, col3, col4 = st.columns(4)
@@ -60,6 +166,8 @@ else:
     with col4:
         if is_drifted:
             st.metric("Drift Status", "⚠️ DRIFT ALERT", delta=f"PSI: {latest_psi:.3f}", delta_color="inverse")
+        elif is_muted:
+            st.metric("Drift Status", "⚠️ DRIFT MUTED", delta=f"PSI: {latest_psi:.3f} (Muted)", delta_color="off")
         else:
             st.metric("Drift Status", "✅ STABLE", delta=f"PSI: {latest_psi:.3f}")
 
