@@ -1,50 +1,45 @@
-import os
-import sqlite3
+﻿import os
 import uuid
 import argparse
 from datetime import datetime
+from sqlalchemy import create_engine, text
 
-def get_db_connection():
-    db_path = os.path.join("data", "results.db")
-    os.makedirs("data", exist_ok=True)
-    return sqlite3.connect(db_path)
+def get_db_engine():
+    db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
+    return create_engine(db_url)
 
 def initialize_source_table():
     """Ensure the source store_reviews table exists with our is_processed state flag."""
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS store_reviews (
-            review_id TEXT PRIMARY KEY,
-            review_date TEXT,
-            category TEXT,
-            review_text TEXT,
-            is_processed INTEGER DEFAULT 0
-        );
-    """)
-    conn.commit()
-    conn.close()
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS store_reviews (
+                review_id TEXT PRIMARY KEY,
+                review_date TEXT,
+                category TEXT,
+                review_text TEXT,
+                is_processed INTEGER DEFAULT 0
+            );
+        """))
 
 def submit_batch_reviews(reviews_list):
     """Inserts a batch of reviews transactionally."""
     if not reviews_list:
         return 0
     initialize_source_table()
-    conn = get_db_connection()
-    c = conn.cursor()
+    engine = get_db_engine()
     inserted = 0
     try:
-        for r in reviews_list:
-            c.execute("""
-                INSERT OR REPLACE INTO store_reviews (review_id, review_date, category, review_text, is_processed)
-                VALUES (?, ?, ?, ?, 0);
-            """, (r["review_id"], r["review_date"], r["category"], r["review_text"]))
-        conn.commit()
-        inserted = len(reviews_list)
+        with engine.begin() as conn:
+            for r in reviews_list:
+                conn.execute(text("DELETE FROM store_reviews WHERE review_id = :review_id"), {"review_id": r["review_id"]})
+                conn.execute(text("""
+                    INSERT INTO store_reviews (review_id, review_date, category, review_text, is_processed)
+                    VALUES (:review_id, :review_date, :category, :review_text, 0)
+                """), r)
+            inserted = len(reviews_list)
     except Exception as e:
         print(f"❌ Transaction failed: {e}")
-    finally:
-        conn.close()
     return inserted
 
 def main():
@@ -132,5 +127,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

@@ -1,6 +1,7 @@
-import os, sys, argparse, sqlite3
+﻿import os, sys, argparse
 from datetime import datetime, timedelta
 import pandas as pd
+from sqlalchemy import create_engine, text
 
 sys.path.append(os.getcwd())
 from airflow_home.dags.batch_scoring import run_batch_scoring
@@ -35,34 +36,45 @@ STABLE_TEMPLATES = {
     ]
 }
 
+def get_db_engine():
+    db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
+    return create_engine(db_url)
+
 def write_to_store_reviews(reviews_list):
-    conn = sqlite3.connect("data/results.db")
-    c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS store_reviews (review_id TEXT PRIMARY KEY, review_date TEXT, category TEXT, review_text TEXT, is_processed INTEGER DEFAULT 0);")
-    for r in reviews_list:
-        c.execute("INSERT OR REPLACE INTO store_reviews VALUES (?, ?, ?, ?, 0);", (r["review_id"], r["review_date"], r["category"], r["review_text"]))
-    conn.commit()
-    conn.close()
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS store_reviews (
+                review_id TEXT PRIMARY KEY,
+                review_date TEXT,
+                category TEXT,
+                review_text TEXT,
+                is_processed INTEGER DEFAULT 0
+            );
+        """))
+        for r in reviews_list:
+            conn.execute(text("DELETE FROM store_reviews WHERE review_id = :review_id"), {"review_id": r["review_id"]})
+            conn.execute(text("""
+                INSERT INTO store_reviews (review_id, review_date, category, review_text, is_processed)
+                VALUES (:review_id, :review_date, :category, :review_text, 0)
+            """), r)
 
 def run_backfill():
     print("================================================================")
     print("🛍️  ETL PIPELINE: Executing 25-Day Historical Backfill (Local)")
     print("================================================================")
-    db = "data/results.db"
-    if os.path.exists(db):
-        try:
-            conn = sqlite3.connect(db)
-            c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM store_reviews")
-            cnt = c.fetchone()[0]
-            conn.close()
+    engine = get_db_engine()
+    try:
+        with engine.connect() as conn:
+            res = conn.execute(text("SELECT COUNT(*) FROM store_reviews"))
+            cnt = res.fetchone()[0]
             if cnt > 0:
-                print(f"ℹ️  INFO: Database '{db}' already contains {cnt} persistent reviews.")
+                print(f"ℹ️  INFO: Database already contains {cnt} persistent reviews in 'store_reviews'.")
                 print(" -> Skipping historical backfill to preserve persistent production history.")
-                print(" -> If you want to reset and run backfill from scratch, please delete 'data/results.db' manually.")
+                print(" -> If you want to reset and run backfill from scratch, please delete 'data/results.db' manually or truncate tables.")
                 return
-        except Exception:
-            pass # Table might not exist yet, proceed with setup
+    except Exception:
+        pass # Table doesn't exist yet, proceed with setup
         
     yesterday = datetime.now() - timedelta(days=1)
     start_date = yesterday - timedelta(days=24)
