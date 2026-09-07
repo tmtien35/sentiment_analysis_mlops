@@ -21,7 +21,7 @@ uvicorn==0.30.6
 
 # Database Connectivity
 psycopg2-binary==2.9.9
-sqlalchemy==2.0.35
+sqlalchemy==1.4.52
 
 # Testing & Quality Assurance
 pytest==8.3.3
