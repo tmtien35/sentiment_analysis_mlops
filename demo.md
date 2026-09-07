@@ -22,12 +22,18 @@ python run_local.py
 *   **Websites to Open:** Dashboard (`http://localhost:8501`), Swagger Docs (`http://localhost:8000/docs`), MLflow (`http://localhost:5000`).
 
 ### **Option B: Google Cloud VM / Containerized Mode (Professional Cloud Demo)**
-Open your GCP SSH Terminal and run:
+Open your GCP SSH Terminal and run this **foolproof 4-step deployment sequence**:
 ```bash
-# 1. Bootstrap and train the initial model (Run once on fresh VM)
+# 1. Clean up and completely reset any old database volumes
+docker compose down -v
+
+# 2. Bootstrap and train the initial champion model (Run once on fresh VM)
 docker compose run --rm fastapi python ml/train_model.py
 
-# 2. Start all 6 containers running in the background (Automatically runs 25-day backfill!)
+# 3. Pre-populate the 25-day historical database into PostgreSQL
+docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
+
+# 4. Start all 6 containers running in the background vĩnh viễn!
 docker compose up -d --build
 ```
 *   **Websites to Open:** Replace `localhost` with your **`IP_Google_Cloud`** (e.g., `http://[IP_Google_Cloud]:8501`, `http://[IP_Google_Cloud]:5000`, `http://[IP_Google_Cloud]:8080`).

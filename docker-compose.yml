@@ -25,7 +25,7 @@ services:
   mlflow:
     build: .
     container_name: mlflow_server
-    command: mlflow server --backend-store-uri sqlite:///app/data/mlflow.db --default-artifact-root /app/mlruns --host 0.0.0.0 --port 5000
+    command: mlflow server --backend-store-uri sqlite:////app/data/mlflow.db --default-artifact-root /app/mlruns --host 0.0.0.0 --port 5000
     ports:
       - "5000:5000"
     volumes:

@@ -99,6 +99,17 @@ else:
         st.markdown("Test scoring using our real-time **FastAPI endpoint**.")
         user_input = st.text_area("Enter custom review text to score:", placeholder="Type a review here...")
         
+        # Check and display previous prediction in session state
+        if "last_prediction" in st.session_state:
+            sent = st.session_state.get("last_sentiment")
+            pred_text = st.session_state.get("last_prediction")
+            if sent == "positive":
+                st.success(pred_text)
+            elif sent == "negative":
+                st.error(pred_text)
+            else:
+                st.warning(pred_text)
+
         if st.button("Predict Sentiment"):
             if not user_input.strip():
                 st.warning("Review text cannot be empty!")
@@ -110,12 +121,11 @@ else:
                         data = res.json()
                         sent = data["predicted_sentiment"]
                         conf = data["confidence"] * 100
-                        if sent == "positive":
-                            st.success(f"**Predicted Sentiment:** POSITIVE ({conf:.1f}% confidence)")
-                        elif sent == "negative":
-                            st.error(f"**Predicted Sentiment:** NEGATIVE ({conf:.1f}% confidence)")
-                        else:
-                            st.warning(f"**Predicted Sentiment:** NEUTRAL ({conf:.1f}% confidence)")
+                        # Store in session state
+                        st.session_state["last_sentiment"] = sent
+                        st.session_state["last_prediction"] = f"**Predicted Sentiment:** {sent.upper()} ({conf:.1f}% confidence)"
+                        # Trigger an instant rerun so that load_data() executes again and fetches the new database row immediately!
+                        st.rerun()
                     else:
                         st.error(f"FastAPI error code: {res.status_code}")
                 except Exception as e:

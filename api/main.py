@@ -17,31 +17,52 @@ ssl.create_default_context = ssl._create_unverified_context
 # Global model variable
 model = None
 
+from sqlalchemy import create_engine, text
+
+def get_db_engine():
+    db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
+    return create_engine(db_url)
+
 def log_prediction_to_db(review_text, cleaned_text, sentiment, confidence):
-    """Log real-time API predictions into a dedicated inference_logs table."""
-    import sqlite3
+    """Log real-time API predictions into a dedicated inference_logs table dynamically."""
     from datetime import datetime
-    db_path = "data/results.db"
-    os.makedirs("data", exist_ok=True)
+    engine = get_db_engine()
     try:
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS inference_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                review_text TEXT,
-                cleaned_text TEXT,
-                predicted_sentiment TEXT,
-                confidence REAL
-            );
-        """)
-        c.execute("""
-            INSERT INTO inference_logs (timestamp, review_text, cleaned_text, predicted_sentiment, confidence)
-            VALUES (?, ?, ?, ?, ?);
-        """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), review_text, cleaned_text, sentiment, confidence))
-        conn.commit()
-        conn.close()
+        with engine.begin() as conn:
+            is_postgres = "postgres" in str(engine.url)
+            if is_postgres:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS inference_logs (
+                        id SERIAL PRIMARY KEY,
+                        timestamp TEXT,
+                        review_text TEXT,
+                        cleaned_text TEXT,
+                        predicted_sentiment TEXT,
+                        confidence REAL
+                    );
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS inference_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT,
+                        review_text TEXT,
+                        cleaned_text TEXT,
+                        predicted_sentiment TEXT,
+                        confidence REAL
+                    );
+                """))
+                
+            conn.execute(text("""
+                INSERT INTO inference_logs (timestamp, review_text, cleaned_text, predicted_sentiment, confidence)
+                VALUES (:timestamp, :review_text, :cleaned_text, :predicted_sentiment, :confidence);
+            """), {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "review_text": review_text,
+                "cleaned_text": cleaned_text,
+                "predicted_sentiment": sentiment,
+                "confidence": float(confidence)
+            })
     except Exception as e:
         print(f"Inference Logging Failed: {e}")
 

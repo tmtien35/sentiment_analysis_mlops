@@ -56,17 +56,29 @@ To provide maximum flexibility and ease of grading, this project supports **two 
 ### 🐳 Mode B: Containerized Production Mode (For Grading, Demos & Cloud Deployment)
 *Use this to spin up and demonstrate the complete, database-backed network of all 6 containerized services (including Postgres, Airflow, and MLflow).*
 
-To deploy the production stack on any environment (such as a fresh local system or a clean Google Cloud Platform VM), execute this **2-step command block**:
+To deploy the production stack on any environment (such as a fresh local system or a clean Google Cloud Platform VM), execute this **foolproof 4-step sequence**:
 
-#### **Step 1: Bootstrap the Initial Model (Run Once)**
-Since local SQLite model tracking (`mlflow.db`) is excluded by `.gitignore` to keep the repository lightweight, you must train and register your initial champion model once inside the container environment before booting:
+#### **Step 1: Clean Up and Reset Existing Database Volumes**
+Ensure that any legacy containers or corrupt database volumes are wiped completely:
+```bash
+docker compose down -v
+```
+
+#### **Step 2: Bootstrap and Train the Initial Model (Run Once)**
+Since local SQLite model tracking (`mlflow.db`) is excluded by `.gitignore` to keep the repository lightweight, you must train and register your initial champion model once inside the container environment:
 ```bash
 docker compose run --rm fastapi python ml/train_model.py
 ```
-*(This command will automatically download build dependencies, compile requirements, train your 4 model candidates on the training partition, select the best model based on Validation Macro-F1, and register it to your centralized registry as `@champion` in under 15 seconds!)*
+*(This command will compile requirements, train your 4 model candidates on the training partition, select the best model based on Validation Macro-F1, and register it as `@champion` in under 15 seconds!)*
 
-#### **Step 2: Launch the Serving Stack in the Background**
-Once your champion model is successfully registered, bring up the entire multi-service ecosystem:
+#### **Step 3: Pre-populate the 25-Day Historical Database**
+Seed the PostgreSQL database with 25 days of stable, balanced historical data and run predictions with your new champion:
+```bash
+docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
+```
+
+#### **Step 4: Launch the Entire Serving Stack in the Background**
+Bring up all 6 containerized services (including Postgres, MLflow, Airflow, FastAPI, and Streamlit) running vĩnh viễn:
 ```bash
 docker compose up -d --build
 ```
