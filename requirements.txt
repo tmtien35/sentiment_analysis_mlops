@@ -30,7 +30,5 @@ flake8==7.1.1
 # HTTP and SSL Bypass dependencies
 requests==2.34.2
 urllib3==2.7.0
-datasets==5.0.1
-fsspec==2026.6.0
-beautifulsoup4==4.12.3
+
 
