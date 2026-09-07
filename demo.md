@@ -1,4 +1,4 @@
-# 🎬 MLOps Live Presentation & Demo Guide (100% Interactive & Local)
+# 🎬 MLOps Live Presentation & Demo Guide (100% Interactive & Multi-Mode)
 
 This guide outlines the step-by-step storyboard and script to demonstrate your MLOps Capstone project.
 
@@ -8,36 +8,45 @@ The entire system is **100% offline, lightning-fast, and relies entirely on user
 
 ## 🛠️ Step 0: Pre-Demo Setup & Reset (Run Before Presenting)
 
-Ensure your servers are fully stopped (press `Ctrl + C` in any open terminal). Then, open a fresh terminal and run:
+You can present this demo in either of your two mutually exclusive execution modes:
 
+### **Option A: Local Python Mode (Laptop Demo)**
+Ensure your servers are fully stopped. Open a terminal and run:
 ```bash
-# 1. Reset results DB and backfill 25 days of stable historical reviews (Generated locally!)
+# 1. Reset results DB and backfill 25 days of stable historical reviews (Offline local templates!)
 python data/ingest_pipeline.py --backfill
 
-# 2. Start your local serving servers cleanly (FastAPI & Streamlit)
+# 2. Start your serving servers cleanly (FastAPI, Streamlit, and MLflow UI)
 python run_local.py
 ```
-*   **Browser Preparation:** Open these ports: Streamlit (`:8501`), FastAPI (`:8000/docs`), MLflow (`:5000`).
+*   **Websites to Open:** Dashboard (`http://localhost:8501`), Swagger Docs (`http://localhost:8000/docs`), MLflow (`http://localhost:5000`).
+
+### **Option B: Google Cloud VM / Containerized Mode (Professional Cloud Demo)**
+Open your GCP SSH Terminal and run:
+```bash
+# 1. Bootstrap and train the initial model (Run once on fresh VM)
+docker compose run --rm fastapi python ml/train_model.py
+
+# 2. Start all 6 containers running in the background (Automatically runs 25-day backfill!)
+docker compose up -d --build
+```
+*   **Websites to Open:** Replace `localhost` with your **`IP_Google_Cloud`** (e.g., `http://[IP_Google_Cloud]:8501`, `http://[IP_Google_Cloud]:5000`, `http://[IP_Google_Cloud]:8080`).
 
 ---
 
 ## 🎭 Act I: Stable Operations & Live Customer Submission
 
 ### **What to do:**
-1.  **Submit a Review (Interactive Loop):** Open a new terminal window and run our continuous storefront submitter app:
+1.  **Submit a Review (Interactive Loop):** Open a new terminal window (or SSH session) and run our continuous storefront submitter app:
     ```bash
     python data/submit_review.py
     ```
     *   **STEP 1:** Press **Enter** to accept the default date (today: `2026-09-04`).
-    *   **STEP 2:** Enter a standard positive review:
-        *   `Review #1 Text:` $\rightarrow$ Type: `"Amazing experience! Great product quality and fast shipping."`
-        *   `Category Choice:` $\rightarrow$ Type `3` (electronics) or press **Enter**.
-    *   **STEP 3:** Submit another review:
-        *   `Review #2 Text:` $\rightarrow$ Type: `"Its okay, pretty standard item."`
-        *   `Category Choice:` $\rightarrow$ Press **Enter** to default to `other`.
-    *   **STEP 4:** Finish and Exit:
-        *   `Review #3 Text:` $\rightarrow$ Simply press **Enter** (or type `exit`).
-    *(Both reviews are now transactionally saved in our shop database table `store_reviews` as `is_processed = 0`)*.
+    *   **STEP 2 (Continuously enter reviews - Category is automatically assigned under-the-hood!):**
+        *   `Review #1 Text:` $\rightarrow$ Type: `"Amazing experience! Great product quality and fast shipping."` $\rightarrow$ Press **Enter**.
+        *   `Review #2 Text:` $\rightarrow$ Type: `"Its okay, pretty standard item."` $\rightarrow$ Press **Enter**.
+        *   `Review #3 Text:` $\rightarrow$ Simply press **Enter** (leave empty) to finish and submit.
+    *(Both reviews are now transactionally saved in your shop database table `store_reviews` with status `is_processed = 0`)*.
 
 2.  **Run Ingestion:** In your terminal, process today's pending customer reviews:
     ```bash
@@ -45,7 +54,7 @@ python run_local.py
     ```
     *(The pipeline automatically finds your 2 pending reviews, runs batch scoring, and locks their state by marking them `is_processed = 1`)*.
 
-3.  **UI Verification:** Go to **Streamlit** (`http://localhost:8501`) and refresh.
+3.  **UI Verification:** Open your **Streamlit** dashboard and refresh.
     *   Today's date appears on the daily volume chart.
     *   The status card is a healthy green **`✅ STABLE`** (PSI is ~0.0).
     *   Your manually entered reviews appear live in the **Scored Reviews Explorer** table!
@@ -61,7 +70,7 @@ python run_local.py
     python data/submit_review.py
     ```
     *   **STEP 1 (Set tomorrow's date):** Type `2026-09-05` and press **Enter**.
-    *   **STEP 2 (Continuously Enter 10 Negative/Drifted Reviews):** To trigger drift, we will submit a highly-skewed batch of Spanish/weird negative complaints! Type each review followed by **Enter** (press **Enter** again to accept the default category):
+    *   **STEP 2 (Continuously Enter 10 Negative/Drifted Reviews):** To trigger drift, we will submit a highly-skewed batch of Spanish/weird negative complaints! Type each review followed by **Enter**:
         1. `"¡Muy mal servicio! El producto llegó roto y muy tarde."`
         2. `"Terrible quality, payment crashed at checkout screen."`
         3. `"Order is stuck in the DelayGator warehouse loop!"`
@@ -78,22 +87,16 @@ python run_local.py
     ```bash
     python data/ingest_pipeline.py --ingest-daily --date 2026-09-05
     ```
-    *(The pipeline scores the 10 reviews. Because 100% of tomorrow's reviews are negative/drifted, the prediction distribution shifts heavily. PSI spikes to `~0.88`—well above the `0.15` safety threshold!)*
+    *(The pipeline scores the 10 reviews. Because 100% of tomorrow's reviews are negative/drifted, the prediction distribution shifts heavily. PSI spikes to `~4.08`—well above the `0.15` safety threshold!)*
 
 3.  **UI & Self-Healing Verification:** 
-    *   **F5 Streamlit:** Watch the dashboard status instantly flip to a flashing red **`⚠️ DRIFT ALERT`**! The PSI Score plot spikes into the warning zone.
-    *   **Alert Generation:** Show the local HTML email generated at `data/alerts/drift_alert_2026_09_05.html` in your browser.
-    *   **Self-Healing Log:** Look at your server console. Show the judges how the system **automatically detected the drift, launched training, evaluated the candidate model, registered version, and promoted it to `@champion` completely hands-free!**
+    *   **Refresh Streamlit:** Watch the dashboard status instantly flip to a flashing red **`⚠️ DRIFT ALERT`**! The PSI Score plot spikes into the warning zone.
+    *   **Alert Generation:** Open the local HTML email generated at `data/alerts/drift_alert_2026_09_05.html` in your browser.
+    *   **Self-Healing Log:** Look at your server console. Show the judges how the system **automatically detected the drift on 2026-09-05, triggered retraining, read the drifted reviews directly from the SQL database, auto-labeled them, evaluated the candidate model, registered version, and promoted it to `@champion` completely hands-free!**
         `🚨 [SELF-HEALING] Data Drift Detected! Triggering automated retraining...`
         `🚨 [SELF-HEALING] Retraining completed successfully! Model updated to @champion.`
 
 ---
 
 ## 🔄 How to Repeat the Demo
-To reset everything back to the beginning for another presentation, simply stop your local servers (`Ctrl + C` in the `run_local.py` terminal) and run **Step 0** again:
-```bash
-python data/ingest_pipeline.py --backfill
-python run_local.py
-```
-This is fully idempotent, robust, and can be repeated infinite times!
-
+To reset everything back to the beginning for another presentation, simply stop your servers and run **Step 0** again. It is 100% idempotent, robust, and can be repeated infinite times!

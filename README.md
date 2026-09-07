@@ -56,18 +56,68 @@ To provide maximum flexibility and ease of grading, this project supports **two 
 ### 🐳 Mode B: Containerized Production Mode (For Grading, Demos & Cloud Deployment)
 *Use this to spin up and demonstrate the complete, database-backed network of all 6 containerized services (including Postgres, Airflow, and MLflow).*
 
-*   **How to Start (Single Action):** Open your terminal inside the project root folder and run:
-    ```bash
-    docker compose up --build
-    ```
-    *This starts the complete ecosystem: Postgres (port `5432`), MLflow (port `5000`), Airflow (port `8080`), FastAPI (port `8000`), and Streamlit (port `8501`).*
+To deploy the production stack on any environment (such as a fresh local system or a clean Google Cloud Platform VM), execute this **2-step command block**:
+
+#### **Step 1: Bootstrap the Initial Model (Run Once)**
+Since local SQLite model tracking (`mlflow.db`) is excluded by `.gitignore` to keep the repository lightweight, you must train and register your initial champion model once inside the container environment before booting:
+```bash
+docker compose run --rm fastapi python ml/train_model.py
+```
+*(This command will automatically download build dependencies, compile requirements, train your 4 model candidates on the training partition, select the best model based on Validation Macro-F1, and register it to your centralized registry as `@champion` in under 15 seconds!)*
+
+#### **Step 2: Launch the Serving Stack in the Background**
+Once your champion model is successfully registered, bring up the entire multi-service ecosystem:
+```bash
+docker compose up -d --build
+```
+*This starts the complete ecosystem in the background: Postgres (port `5432`), MLflow (port `5000`), Airflow (port `8080`), FastAPI (port `8000`), and Streamlit (port `8501`).*
+
 *   **The Auto-Backfill Magic:** On boot, the Airflow container automatically detects that PostgreSQL is empty and instantly backfills all 25 days of reviews, populating your database and dashboard with rich history automatically!
 *   **Where to Open in Browser:**
     *   **Streamlit Analytics Dashboard:** [http://localhost:8501](http://localhost:8501) *(connected live to PostgreSQL)*
     *   **Orchestration UI (Airflow):** [http://localhost:8080](http://localhost:8080) *(Username: `mlops` \| Password: `mlops`)*
     *   **Experiment Registry (MLflow):** [http://localhost:5000](http://localhost:5000)
     *   **On-Demand Serving (FastAPI Docs):** [http://localhost:8000/docs](http://localhost:8000/docs)
-*   **How to Stop (Single Action):** Press **`[Ctrl + C]`** in the terminal where Docker is running. It will cleanly terminate all 6 containers and free all ports.
+*   **How to Stop (Single Action):** To cleanly terminate all 6 background containers and free up ports, simply run:
+    ```bash
+    docker compose down
+    ```
+
+---
+
+## 🛠️ Linux VM & Docker Troubleshooting
+
+If you are deploying on a fresh Linux Cloud Server (such as **Google Cloud Platform VM / AWS EC2**) or an older machine, you may encounter system-level Docker version conflicts. Here is how to resolve them instantly:
+
+### 🚨 1. Unknown Command: `docker compose` or KeyError: `ContainerConfig`
+If running the `docker compose` command fails with an error or throws `KeyError: 'ContainerConfig'` during startup, your machine is running an obsolete version of the Python-based Docker Compose V1 (e.g., version `1.29.2`). 
+
+Upgrade to the official, highly optimized **Docker Compose V2** (written in Go) instantly with these commands:
+```bash
+# 1. Create CLI plugins directory
+mkdir -p ~/.docker/cli-plugins/
+
+# 2. Download the official Docker Compose V2 binary from GitHub
+curl -SL https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-x86_64 -o ~/.docker/cli-plugins/docker-compose
+
+# 3. Apply executable permissions
+chmod +x ~/.docker/cli-plugins/docker-compose
+
+# 4. Overwrite any legacy /usr/local/bin symlinks to allow both syntaxes
+sudo curl -SL https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+```
+Verify the upgrade with `docker compose version` (it should now report `v2.24.1+`).
+
+### 🚨 2. SQLite Error: `unable to open database file`
+In older architectures, mounting a single non-existent host file to a container (like `- ./mlflow.db:/app/mlflow.db`) caused Docker to erroneously create `mlflow.db` as a **directory** on the host. 
+
+To fix this once and for all, **our architecture unifies all SQLite database persistence (both `results.db` and `mlflow.db`) inside the standard `./data/` folder**, which is mapped at the folder-level as `- ./data:/app/data`. This guarantees 100% database persistence, eliminates file-to-folder clashes, and ensures a clean run right out-of-the-box!
+
+If you see this error on a legacy VM, simply clean up any Docker-generated directories by running:
+```bash
+rm -rf mlflow.db
+```
 
 ---
 
