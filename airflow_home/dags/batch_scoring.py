@@ -41,8 +41,9 @@ def run_batch_scoring(ds: str):
         conn.execute(text("CREATE TABLE IF NOT EXISTS drift_metrics (batch_date TEXT PRIMARY KEY, row_count INTEGER, avg_confidence REAL, psi_score REAL, drift_detected INTEGER);"))
         
         for _, r in df_pending.iterrows():
+            conn.execute(text("DELETE FROM predictions WHERE review_id = :review_id"), {"review_id": r["review_id"]})
             conn.execute(text("""
-                INSERT OR REPLACE INTO predictions (review_id, review_date, category, review_text, cleaned_text, predicted_sentiment, confidence)
+                INSERT INTO predictions (review_id, review_date, category, review_text, cleaned_text, predicted_sentiment, confidence)
                 VALUES (:review_id, :review_date, :category, :review_text, :cleaned_text, :predicted_sentiment, :confidence)
             """), dict(r))
 
