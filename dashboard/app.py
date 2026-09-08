@@ -344,88 +344,102 @@ else:
 
     st.markdown("---")
     st.markdown("### 🧠 Active Learning & Human-in-the-Loop Audit")
-    st.markdown("""
-    When model retraining validation macro-f1 fails to beat the current champion (e.g., during a data drift alert), human operators must audit the predictions of the drifted batch to provide high-fidelity training labels.
-    Select reviews below to assign correct ground-truth sentiments. These verified labels are stored directly in `store_reviews` and will be loaded natively as gold training data in the next retrain!
-    """)
+    st.markdown("When model retraining fails the Gatekeeper (e.g., during data drift), human operators must audit predictions of the drifted batch. Edit the **Human Verified Label** column below in bulk, then click **Save All Bulk Edits**.")
     
     if df_audit is not None and len(df_audit) > 0:
-        # Filter options
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            audit_dates = ["All Dates"] + sorted(list(df_audit['review_date'].dropna().unique()), reverse=True)
-            selected_audit_date = st.selectbox("Filter audit table by date:", audit_dates)
-        with col_f2:
+        drifted_dates = []
+        if df_drift is not None and len(df_drift) > 0:
+            drifted_dates = df_drift[df_drift['drift_detected'] >= 1]['batch_date'].tolist()
+
+        col_scope, col_verified = st.columns(2)
+        with col_scope:
+            audit_scope = st.radio(
+                "Select Auditing Scope:",
+                ["Show only Audit Candidates (Low Confidence or Drifted Dates)", "Show All Reviews (Including Healthy Reviews)"],
+                index=0, horizontal=True
+            )
+        with col_verified:
             hide_verified = st.checkbox("Show only unverified reviews (where Human Verified Label is NULL)", value=True)
             
-        # Apply filters
+        audit_dates = ["All Dates"] + sorted(list(df_audit['review_date'].dropna().unique()), reverse=True)
+        selected_audit_date = st.selectbox("Filter audit table by date:", audit_dates)
+            
         filtered_audit = df_audit.copy()
         if selected_audit_date != "All Dates":
             filtered_audit = filtered_audit[filtered_audit['review_date'] == selected_audit_date]
+            
         if hide_verified:
-            filtered_audit = filtered_audit[filtered_audit['verified_sentiment'].isna() | (filtered_audit['verified_sentiment'] == '') | (filtered_audit['verified_sentiment'].astype(str).lower() == 'none')]
+            filtered_audit = filtered_audit[
+                filtered_audit['verified_sentiment'].isna() | 
+                (filtered_audit['verified_sentiment'] == '') | 
+                (filtered_audit['verified_sentiment'].astype(str).str.lower() == 'none') |
+                (filtered_audit['verified_sentiment'].astype(str).str.lower() == 'nan')
+            ]
             
-        # Display the audit dataframe
-        st.dataframe(
-            filtered_audit[['review_id', 'review_date', 'review_text', 'predicted_sentiment', 'confidence', 'verified_sentiment']].sort_values('confidence', ascending=True),
-            height=200,
-            use_container_width=True
-        )
+        if audit_scope == "Show only Audit Candidates (Low Confidence or Drifted Dates)":
+            is_drifted_date = filtered_audit['review_date'].isin(drifted_dates)
+            is_low_confidence = filtered_audit['confidence'] < 0.70
+            filtered_audit = filtered_audit[is_drifted_date | is_low_confidence]
+            
+        filtered_audit = filtered_audit.sort_values('confidence', ascending=True)
         
-        # Interactive Auditing Form
         if len(filtered_audit) > 0:
-            st.markdown("#### 📝 Edit/Verify Review Sentiment")
+            display_df = filtered_audit[['review_id', 'review_date', 'category', 'review_text', 'predicted_sentiment', 'confidence', 'verified_sentiment']].copy()
+            display_df['verified_sentiment'] = display_df['verified_sentiment'].apply(
+                lambda v: v if pd.notnull(v) and str(v).strip() != "" and str(v).lower() != "none" and str(v).lower() != "null" and str(v).lower() != "nan" else None
+            )
             
-            # Helper to preview
-            review_snippets = filtered_audit.apply(
-                lambda row: f"{row['review_id']} | ({row['review_date']}) | AI: {str(row['predicted_sentiment']).upper()} ({row['confidence']*100:.1f}% if pd.notnull(row['confidence']) else 0.0) | {str(row['review_text'])[:50]}...",
-                axis=1
-            ).tolist()
+            edited_df = st.data_editor(
+                display_df,
+                column_config={
+                    "review_id": st.column_config.TextColumn("Review ID", disabled=True),
+                    "review_date": st.column_config.TextColumn("Date", disabled=True),
+                    "category": st.column_config.TextColumn("Category", disabled=True),
+                    "review_text": st.column_config.TextColumn("Review Text", disabled=True, width="large"),
+                    "predicted_sentiment": st.column_config.TextColumn("AI Prediction", disabled=True),
+                    "confidence": st.column_config.NumberColumn("AI Confidence", disabled=True, format="%.4f"),
+                    "verified_sentiment": st.column_config.SelectboxColumn(
+                        "Human Verified Label",
+                        options=["positive", "neutral", "negative"],
+                        required=False
+                    )
+                },
+                disabled=["review_id", "review_date", "category", "review_text", "predicted_sentiment", "confidence"],
+                key="bulk_audit_editor",
+                use_container_width=True, hide_index=True
+            )
             
-            # Use safe formatting for snippet string list
-            review_snippets = []
-            for _, row in filtered_audit.iterrows():
-                conf_pct = f"{row['confidence']*100:.1f}%" if pd.notnull(row['confidence']) else "N/A"
-                snippet = f"{row['review_id']} | ({row['review_date']}) | AI: {str(row['predicted_sentiment']).upper()} ({conf_pct}) | {str(row['review_text'])[:50]}..."
-                review_snippets.append(snippet)
-
-            selected_snippet = st.selectbox("Select a review row to audit (sorted by lowest confidence):", review_snippets)
-            selected_id = selected_snippet.split(" | ")[0]
-            selected_row = filtered_audit[filtered_audit['review_id'] == selected_id].iloc[0]
-            
-            st.info(f"👉 **Review Text:** {selected_row['review_text']}")
-            
-            col_sel, col_btn = st.columns([2, 1])
-            with col_sel:
-                default_val_index = 0
-                if selected_row['predicted_sentiment'] == 'positive':
-                    default_val_index = 0
-                elif selected_row['predicted_sentiment'] == 'neutral':
-                    default_val_index = 1
-                elif selected_row['predicted_sentiment'] == 'negative':
-                    default_val_index = 2
+            if st.button("💾 Save All Bulk Edits", use_container_width=True):
+                updates = []
+                for _, row in edited_df.iterrows():
+                    r_id = row['review_id']
+                    orig_row = display_df[display_df['review_id'] == r_id].iloc[0]
+                    orig_val = orig_row['verified_sentiment']
+                    new_val = row['verified_sentiment']
+                    
+                    orig_val_str = str(orig_val).strip().lower() if pd.notnull(orig_val) else "none"
+                    new_val_str = str(new_val).strip().lower() if pd.notnull(new_val) else "none"
+                    
+                    if orig_val_str != new_val_str:
+                        db_val = new_val if pd.notnull(new_val) and str(new_val).strip() != "" else None
+                        updates.append({"id": r_id, "label": db_val})
                 
-                correct_label = st.radio(
-                    "Select correct sentiment:",
-                    ["positive", "neutral", "negative"],
-                    index=default_val_index,
-                    horizontal=True
-                )
-            with col_btn:
-                st.markdown("<div style='height: 25px;'></div>", unsafe_allow_html=True) # spacer
-                if st.button("💾 Submit Ground-Truth Label", use_container_width=True):
+                if len(updates) > 0:
                     try:
                         with engine.begin() as conn:
-                            conn.execute(
-                                text("UPDATE store_reviews SET verified_sentiment = :label WHERE review_id = :id"),
-                                {"label": correct_label, "id": selected_id}
-                            )
-                        st.success(f"Success! Review `{selected_id}` verified as `{correct_label.upper()}`.")
+                            for upd in updates:
+                                conn.execute(
+                                    text("UPDATE store_reviews SET verified_sentiment = :label WHERE review_id = :id"),
+                                    {"label": upd["label"], "id": upd["id"]}
+                                )
+                        st.success(f"🎉 Successfully saved {len(updates)} bulk edits!")
                         st.cache_data.clear()
                         st.rerun()
                     except Exception as ex:
-                        st.error(f"Error saving label: {ex}")
+                        st.error(f"Error saving bulk edits: {ex}")
+                else:
+                    st.info("No modifications detected.")
         else:
-            st.info("No matching unverified reviews found for the selected criteria. Good job! All reviews in this subset are fully verified.")
+            st.success("🎉 No reviews requiring manual audit found for the selected filters!")
     else:
         st.info("No reviews found in database for auditing.")
