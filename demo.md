@@ -134,7 +134,7 @@ Show the judges how you can actively manage production alerts and bypass model p
 1.  In the sidebar, under **Continuous Training**, click the **`Trigger Retrain Manual`** button.
 2.  Watch the spinner run. In under 10 seconds, it will complete and pop a green:
     `🏆 Model Retrained Successfully! New @champion promoted.`
-3.  **Result:** The background system executed `ml/train_model.py`, registered a brand new model version, and automatically pointed the `@champion` alias to it! You can verify this Version increase live on **MLflow** (`http://[IP_Google_Cloud]:5000`).
+3.  **Result:** The background system executed `ml/train_model.py`, scanned the PostgreSQL database for any human-audited reviews (`verified_sentiment IS NOT NULL`), merged them dynamically in-memory with the baseline dataset, trained a brand-new, more accurate model version, and registered it under `@candidate` (or `@champion` if it passed the gatekeeper!). You can verify this Version increase live on **MLflow** (`http://[IP_Google_Cloud]:5000`).
 
 ### **3. Test the "Switch to Fallback Rules" (Gạt cầu chì ngắt AI - Circuit Breaker):**
 Let's simulate a situation where your AI model behaves erratically, and you need to bypass it instantly to ensure business continuity.
@@ -173,3 +173,45 @@ docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
 docker compose up -d --build
 ```
 This is fully idempotent, robust, and can be repeated infinite times!
+
+---
+
+## 📊 Appendix: GCP PostgreSQL Quick Query Cheat Sheet
+
+Use these quick, read-to-run database commands directly inside your GCP SSH Terminal to inspect, query, or audit your live PostgreSQL database on Google Cloud!
+
+### **1. Xem những review chưa được xử lý (Pending store reviews: is_processed = 0)**
+If you submitted reviews via `submit_review.py` but haven't scored them yet, run this to see the pending queue:
+```bash
+docker compose exec postgres psql -U mlops -d results_db -c "SELECT * FROM store_reviews WHERE is_processed = 0 ORDER BY review_date DESC, review_id ASC;"
+```
+
+### **2. Xem N review đã được chấm điểm gần nhất (Get latest N scored predictions)**
+Inspect the latest 10 scored predictions sorted by date:
+```bash
+docker compose exec postgres psql -U mlops -d results_db -c "SELECT * FROM predictions ORDER BY review_date DESC, review_id ASC LIMIT 10;"
+```
+
+### **3. Xem review của một ngày cụ thể (Get reviews for a specific date)**
+Query all recorded reviews submitted on a target date (e.g., `2026-09-08`):
+```bash
+docker compose exec postgres psql -U mlops -d results_db -c "SELECT * FROM store_reviews WHERE review_date = '2026-09-08' ORDER BY review_id ASC;"
+```
+
+### **4. Đổi label dự đoán của một dòng X (Update predicted sentiment for audit/correction)**
+Simulate a manual audit correction where a reviewer overrides a predicted sentiment (e.g., writing a human-verified/moderated ground-truth label of `'negative'` for review `user_6ce8dcc9` inside the source table store_reviews):
+```bash
+docker compose exec postgres psql -U mlops -d results_db -c "UPDATE store_reviews SET verified_sentiment = 'negative' WHERE review_id = 'user_6ce8dcc9';"
+```
+
+### **5. Xem tổng quan số lượng bản ghi của toàn bộ các bảng (Database Row Counts Overview)**
+Get a quick audit of how many rows exist in each of your 4 tables dynamically:
+```bash
+docker compose exec postgres psql -U mlops -d results_db -c "SELECT 'store_reviews' as table_name, count(*) FROM store_reviews UNION ALL SELECT 'predictions', count(*) FROM predictions UNION ALL SELECT 'drift_metrics', count(*) FROM drift_metrics UNION ALL SELECT 'inference_logs', count(*) FROM inference_logs;"
+```
+
+### **6. Xem lịch sử đo lường trôi lệch dữ liệu (Inspect drift metrics history)**
+Query the latest 5 batch drift executions to audit your PSI and drift trigger logs:
+```bash
+docker compose exec postgres psql -U mlops -d results_db -c "SELECT * FROM drift_metrics ORDER BY batch_date DESC LIMIT 5;"
+```

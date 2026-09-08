@@ -49,14 +49,15 @@ def write_to_store_reviews(reviews_list):
                 review_date TEXT,
                 category TEXT,
                 review_text TEXT,
-                is_processed INTEGER DEFAULT 0
+                is_processed INTEGER DEFAULT 0,
+                verified_sentiment TEXT DEFAULT NULL
             );
         """))
         for r in reviews_list:
             conn.execute(text("DELETE FROM store_reviews WHERE review_id = :review_id"), {"review_id": r["review_id"]})
             conn.execute(text("""
-                INSERT INTO store_reviews (review_id, review_date, category, review_text, is_processed)
-                VALUES (:review_id, :review_date, :category, :review_text, 0)
+                INSERT INTO store_reviews (review_id, review_date, category, review_text, is_processed, verified_sentiment)
+                VALUES (:review_id, :review_date, :category, :review_text, 0, NULL)
             """), r)
 
 def run_backfill():

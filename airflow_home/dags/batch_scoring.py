@@ -92,7 +92,37 @@ def run_batch_scoring(ds: str = None):
         os.makedirs(path, exist_ok=True)
         fpath = os.path.join(path, f"drift_alert_{ds.replace('-', '_')}.html")
         with open(fpath, "w", encoding="utf-8") as f: f.write(html)
-        print(f"\n📧 [EMAIL ALERT] Saved HTML email to: {fpath}\n📧 Subject: 🚨 Ingest Alert: Drift {ds}\nTo: tmtien35@gmail.com")
+        print(f"📧 [EMAIL ALERT] Saved HTML email mockup to: {fpath}")
+        
+        # Real-time SMTP email sending (using secure starttls)
+        try:
+            import smtplib
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            
+            sender_email = os.environ.get("SMTP_SENDER", "mlops.alert.system@gmail.com")
+            sender_password = os.environ.get("SMTP_PASSWORD")
+            recipient_email = "tmtien35@gmail.com"
+            
+            if sender_password:
+                print(f"📧 [EMAIL] Attempting to send real email alert to {recipient_email}...")
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = f"🚨 MLOps Alert: Data Drift Detected on {ds}!"
+                msg["From"] = sender_email
+                msg["To"] = recipient_email
+                msg.attach(MIMEText(html, "html"))
+                
+                with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+                    server.starttls()
+                    server.login(sender_email, sender_password)
+                    server.sendmail(sender_email, recipient_email, msg.as_string())
+                print(f"✅ [EMAIL] Real email alert successfully sent to {recipient_email} via Gmail SMTP!")
+            else:
+                print("ℹ️  [EMAIL] Real email sending skipped (SMTP_PASSWORD environment variable is not set).")
+                print(" -> To receive real emails in your inbox, set the 'SMTP_PASSWORD' environment variable with a Gmail App Password in your Docker environment.")
+        except Exception as e:
+            print(f"⚠️ [EMAIL] Failed to send real email via SMTP: {e}")
+            print(" -> Note: Cloud providers (like GCP/AWS) often block SMTP port 587 by default to prevent spam.")
         
         import sys, subprocess
         print("\n🚨 [SELF-HEALING] Data Drift Detected! Triggering automated retraining pipeline...")

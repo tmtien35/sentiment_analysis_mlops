@@ -94,6 +94,30 @@ def main():
         rec = recall_score(y_true, y_pred, average='macro', zero_division=0)
         val_f1 = f1_score(y_true, y_pred, average='macro', zero_division=0)
         print(f"Validation Accuracy: {acc:.4f} | Validation Macro-F1: {val_f1:.4f}")
+
+        # --- AUTOMATED MODEL GATEKEEPING ---
+        champion_f1 = 0.0
+        try:
+            print("Loading current @champion model from registry for gatekeeping...")
+            champion_model = mlflow.sklearn.load_model("models:/ecommerce-sentiment-model@champion")
+            champ_preds = champion_model.predict(val_df['cleaned_text'])
+            champion_f1 = f1_score(val_df['sentiment'], champ_preds, average='macro', zero_division=0)
+            print(f" -> Current @champion Validation Macro-F1: {champion_f1:.4f}")
+        except Exception as e:
+            print(f" -> No active @champion model found in registry: {e}")
+
+        if val_f1 < champion_f1:
+            print(f"\n❌ GATEKEEPING FAILED: New Model F1 ({val_f1:.4f}) < Champion F1 ({champion_f1:.4f}). Aborting registration!")
+            # Save incident report
+            html = f"""<div style='font-family:Arial;max-width:450px;border:1px solid #ddd;padding:15px;border-radius:8px;'><h2 style='color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;'>❌ GATEKEEPING RETRAIN FAILED</h2><p>Model retraining aborted because the new model failed the automated validation gate.</p><p><b>Champion Macro-F1:</b> <span style='color:#2ecc71;font-weight:bold;'>{champion_f1:.4f}</span></p><p><b>Candidate Macro-F1:</b> <span style='color:#e74c3c;font-weight:bold;'>{val_f1:.4f}</span></p><p style='background:#fdf2f2;padding:10px;color:#9b1c1c;'><strong>Serving continues running the stable @champion model safely.</strong></p></div>"""
+            path = os.path.join("data", "alerts")
+            os.makedirs(path, exist_ok=True)
+            fpath = os.path.join(path, f"retrain_failed_{datetime.now().strftime('%Y_%m_%d_%H%M')}.html")
+            with open(fpath, "w", encoding="utf-8") as f: f.write(html)
+            print(f"📧 [EMAIL ALERT] Saved HTML incident report to: {fpath}")
+            return
+
+        print(f"\n✅ GATEKEEPING PASSED: New Model F1 ({val_f1:.4f}) >= Champion F1 ({champion_f1:.4f}). Proceeding with registration...")
         
         # Log params & metrics
         mlflow.log_param("clf__alpha", 1.0)
@@ -121,7 +145,8 @@ def main():
         os.remove(fig_path)
         
     # Unbiased single evaluation on test partition
-    print(f"\nEvaluating champion on unseen test set...")
+    print(f"
+Evaluating candidate on unseen test set...")
     test_preds = pipeline.predict(test_df['cleaned_text'])
     y_test_true = test_df['sentiment']
     
@@ -134,16 +159,17 @@ def main():
         mlflow.log_metric("test_macro_f1", test_f1)
         
     # Register model programmatically
-    print("\nRegistering model...")
+    print("
+Registering model...")
     model_uri = f"runs:/{run_id}/model"
     model_name_reg = "ecommerce-sentiment-model"
     model_details = mlflow.register_model(model_uri=model_uri, name=model_name_reg)
     
-    # Point 'champion' alias to registered model
-    print(f"Promoting version {model_details.version} to '@champion'...")
+    # Point 'candidate' alias to registered model
+    print(f"Promoting version {model_details.version} to '@candidate'...")
     client = MlflowClient()
-    client.set_registered_model_alias(name=model_name_reg, alias="champion", version=model_details.version)
-    print("Successfully selected and registered champion model with closed-loop feedback!")
+    client.set_registered_model_alias(name=model_name_reg, alias="candidate", version=model_details.version)
+    print("Successfully registered candidate model under @candidate alias for manual promotion!")
 
 if __name__ == "__main__":
     main()

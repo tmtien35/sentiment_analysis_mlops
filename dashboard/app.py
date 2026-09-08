@@ -66,6 +66,38 @@ st.sidebar.markdown("Use these manual overrides to respond to production inciden
 
 engine = get_db_engine()
 
+# Fetch active model versions from MLflow Registry for audit trail
+champion_version = "None"
+candidate_version = "None"
+has_candidate = False
+try:
+    import mlflow
+    from mlflow.tracking import MlflowClient
+    mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
+    client = MlflowClient()
+    
+    # Get active @champion version
+    version_info_champ = client.get_model_version_by_alias("ecommerce-sentiment-model", "champion")
+    if version_info_champ:
+        champion_version = version_info_champ.version
+        
+    # Get active @candidate version
+    version_info_cand = client.get_model_version_by_alias("ecommerce-sentiment-model", "candidate")
+    if version_info_cand:
+        candidate_version = version_info_cand.version
+        has_candidate = True
+except Exception:
+    pass
+
+st.sidebar.markdown("### 🏷️ Active Registry Versions")
+st.sidebar.markdown(f"🏆 **Champion Model:** `Version {champion_version}`")
+if has_candidate:
+    st.sidebar.markdown(f"Contender Model: `Version {candidate_version}`")
+else:
+    st.sidebar.markdown(f"Contender Model: `None`")
+
+st.sidebar.markdown("---")
+
 # 1. Circuit Breaker (ML vs Fallback)
 try:
     with engine.connect() as conn:
@@ -94,7 +126,42 @@ if target_mode_val != current_mode:
 if target_mode_val == "fallback":
     st.sidebar.warning("🛡️ Safe-Mode Active: ML Model Bypassed!")
 
-# 2. Trigger Retraining
+# 2. Canary Traffic Split & Manual Promotion (Only visible if `@candidate` contender exists!)
+if has_candidate and target_mode_val == "ml":
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"### 🐤 Canary Deploy (Contender: v{candidate_version})")
+    try:
+        with engine.connect() as conn:
+            current_canary = int(get_setting(conn, "canary_percentage", "0"))
+    except Exception:
+        current_canary = 0
+        
+    new_canary = st.sidebar.slider("Canary Traffic Split:", 0, 100, current_canary, step=10, format="%d%%")
+    if new_canary != current_canary:
+        try:
+            with engine.begin() as conn:
+                set_setting(conn, "canary_percentage", str(new_canary))
+            st.sidebar.success(f"Canary split set to: {new_canary}%")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Failed to set split: {e}")
+            
+    if st.sidebar.button("Promote Candidate to Champion 🏆"):
+        with st.spinner("Promoting candidate..."):
+            try:
+                # Set candidate to champion in MLflow Registry
+                client.set_registered_model_alias("ecommerce-sentiment-model", "champion", candidate_version)
+                # Delete candidate alias
+                client.delete_registered_model_alias("ecommerce-sentiment-model", "candidate")
+                # Reset canary split back to 0
+                with engine.begin() as conn:
+                    set_setting(conn, "canary_percentage", "0")
+                st.sidebar.success(f"🏆 Version {candidate_version} promoted to @champion!")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"Failed to promote: {e}")
+
+# 3. Trigger Retraining
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🧠 Continuous Training")
 if st.sidebar.button("Trigger Retrain Manual"):
@@ -105,14 +172,14 @@ if st.sidebar.button("Trigger Retrain Manual"):
         try:
             res = subprocess.run([sys.executable, "ml/train_model.py"], env=env, capture_output=True, text=True)
             if res.returncode == 0:
-                st.sidebar.success("🏆 Model Retrained Successfully! New @champion promoted.")
+                st.sidebar.success("🏆 Retraining Completed!")
                 st.rerun()
             else:
-                st.sidebar.error(f"Retrain Failed: {res.stderr}")
+                st.sidebar.error("Retrain failed/aborted. Check data/alerts/ for reports.")
         except Exception as e:
             st.sidebar.error(f"Error executing retrain: {e}")
 
-# 3. Mute/Acknowledge Alert
+# 4. Mute/Acknowledge Alert
 # Only show this if there is an active alert!
 try:
     latest_drift_val = df_drift.iloc[-1]
