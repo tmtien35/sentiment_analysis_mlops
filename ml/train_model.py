@@ -36,8 +36,7 @@ def main():
     results_db_exists = os.path.exists("data/results.db")
     
     if drift_date and (is_postgres or results_db_exists):
-        print(f"
-🏷️  MLOps Feedback Loop: Ingesting newly labeled drifted reviews from SQL database for date '{drift_date}'...")
+        print(f"🏷️  MLOps Feedback Loop: Ingesting newly labeled drifted reviews from SQL database for date '{drift_date}'...")
         from sqlalchemy import create_engine, text
         try:
             engine = create_engine(db_url)
