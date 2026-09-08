@@ -143,6 +143,15 @@ def main():
 
         print(f"\n✅ GATEKEEPING PASSED: New Model F1 ({val_f1:.4f}) >= Champion F1 ({champion_f1:.4f}). Proceeding with registration...")
         
+        # Clear gatekeeping failure reports since we have successfully passed the gatekeeper
+        import glob
+        try:
+            for fpath in glob.glob(os.path.join("data", "alerts", "retrain_failed_*.html")):
+                os.remove(fpath)
+                print(f"🗑️  Cleared old gatekeeper failure report: {fpath}")
+        except Exception as e:
+            print(f" -> Failed to clear gatekeeper failure reports: {e}")
+        
         # Log params & metrics
         mlflow.log_param("clf__alpha", 1.0)
         mlflow.log_param("dataset_hashes", hashes)
