@@ -22,19 +22,25 @@ python run_local.py
 *   **Websites to Open:** Dashboard (`http://localhost:8501`), Swagger Docs (`http://localhost:8000/docs`), MLflow (`http://localhost:5000`).
 
 ### **Option B: Google Cloud VM / Containerized Mode (Professional Cloud Demo)**
-Open your GCP SSH Terminal and run this **foolproof 4-step deployment sequence**:
+Open your GCP SSH Terminal and run this **foolproof 6-step deployment sequence**:
 ```bash
 # 1. Clean up and completely reset any old database volumes
 docker compose down -v
 
-# 2. Bootstrap and train the initial champion model (Run once on fresh VM)
+# 2. Build the fastapi image first to ensure all code is updated
+docker compose build fastapi
+
+# 3. Bootstrap and train the initial champion model
 docker compose run --rm fastapi python ml/train_model.py
 
-# 3. Pre-populate the 25-day historical database into PostgreSQL
+# 4. Pre-populate the 25-day historical database into PostgreSQL
 docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
 
-# 4. Start all 6 containers running in the background vĩnh viễn!
+# 5. Start all 6 containers running in the background vĩnh viễn!
 docker compose up -d --build
+
+# 6. Unpause the Airflow DAG for Automated Ingestion
+docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
 ```
 *   **Websites to Open:** Replace `localhost` with your **`IP_Google_Cloud`** (e.g., `http://[IP_Google_Cloud]:8501`, `http://[IP_Google_Cloud]:5000`, `http://[IP_Google_Cloud]:8080`).
 
@@ -137,13 +143,23 @@ Show the judges how you can actively manage production alerts and bypass model p
 1.  Under **MLOps Incident Control Panel** in the sidebar, click the **`Acknowledge & Mute Alert`** button.
 2.  **Result:** Streamlit immediately updates. The flashing red **`⚠️ DRIFT ALERT`** status card flips into a calm, yellow **`⚠️ DRIFT MUTED`**, proving you've acknowledged the flash sale / event and silenced the alarm cleanly in PostgreSQL!
 
-### **2. Test the "Trigger Retrain Manual" (Cưỡng bức học máy):**
-1.  In the sidebar, under **Continuous Training**, click the **`Trigger Retrain Manual`** button.
-2.  Watch the spinner run. In under 10 seconds, it will complete and pop a green:
-    `🏆 Model Retrained Successfully! New @champion promoted.`
-3.  **Result:** The background system executed `ml/train_model.py`, scanned the PostgreSQL database for any human-audited reviews (`verified_sentiment IS NOT NULL`), merged them dynamically in-memory with the baseline dataset, trained a brand-new, more accurate model version, and registered it under `@candidate` (or `@champion` if it passed the gatekeeper!). You can verify this Version increase live on **MLflow** (`http://[IP_Google_Cloud]:5000`).
+### **2. Test the "Active Learning & Human-in-the-Loop Audit" (Gán nhãn sửa lỗi trực tiếp trên giao diện):**
+Before triggering manual retraining, let's play the role of an Admin auditing the database to correct model misclassifications directly from the web browser:
+1. Scroll down to the **🧠 Active Learning & Human-in-the-Loop Audit** section at the bottom of the page.
+2. Here, you'll see a list of scored reviews sorted by **lowest confidence** (Uncertainty Sampling).
+3. Find an interesting review (e.g. one with low confidence or showing a mismatch between the text and AI's prediction).
+4. Under **📝 Edit/Verify Review Sentiment**, select that review from the dropdown.
+5. In the radio buttons, select the correct sentiment (e.g., changing a low-confidence `neutral` to `negative` or `positive`), and click **`💾 Submit Ground-Truth Label`**.
+6. **Result:** The system transactionally updates `verified_sentiment` in `store_reviews` and instantly refreshes the page, displaying your correction in the table! This means you can audit and fix labels entirely in your browser without touching SQL command lines.
 
-### **3. Test the "Switch to Fallback Rules" (Gạt cầu chì ngắt AI - Circuit Breaker):**
+### **3. Test the "Trigger Retrain Manual" (Cưỡng bức học máy):**
+Now that you have supplied real, gold-standard human-verified labels:
+1. In the sidebar, under **Continuous Training**, click the **`Trigger Retrain Manual`** button.
+2. Watch the spinner run. In under 10 seconds, it will complete and pop a green:
+    `🏆 Model Retrained Successfully! New @candidate registered.` (or promoted to `@champion` if it passed the automatic gatekeeper!)
+3. **Result:** The background system executed `ml/train_model.py`, transactionally scanned the PostgreSQL/SQLite database for **any** human-audited reviews (`verified_sentiment IS NOT NULL`), merged them dynamically in-memory with the baseline dataset, trained a brand-new, more accurate model version, and registered it under `@candidate`. You can verify this Version increase live on **MLflow** (`http://[IP_Google_Cloud]:5000`).
+
+### **4. Test the "Switch to Fallback Rules" (Gạt cầu chì ngắt AI - Circuit Breaker):**
 Let's simulate a situation where your AI model behaves erratically, and you need to bypass it instantly to ensure business continuity.
 1.  In the sidebar, click the **Active Serving Mode** dropdown and change it from `Machine Learning Model` to **`Rule-Based Fallback Rules`**.
 2.  A yellow warning box appears: `🛡️ Safe-Mode Active: ML Model Bypassed!`.
@@ -170,13 +186,16 @@ If you want to clear your persistent database (for another presentation or rehea
 # 1. Stop containers and delete PostgreSQL volumes
 docker compose down -v
 
-# 2. Bootstrap model training
+# 2. Build the fastapi image first to ensure all code is updated
+docker compose build fastapi
+
+# 3. Bootstrap and train the initial champion model
 docker compose run --rm fastapi python ml/train_model.py
 
-# 3. Seed 25-day historical backfill
+# 4. Seed 25-day historical backfill into PostgreSQL
 docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
 
-# 4. Bring serving servers back online
+# 5. Bring serving servers back online
 docker compose up -d --build
 ```
 This is fully idempotent, robust, and can be repeated infinite times!

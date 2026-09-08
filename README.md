@@ -65,9 +65,9 @@ docker compose down -v
 ```
 
 #### **Step 2: Bootstrap and Train the Initial Model (Run Once)**
-Since local SQLite model tracking (`mlflow.db`) is excluded by `.gitignore` to keep the repository lightweight, you must train and register your initial champion model once inside the container environment:
+Since local SQLite model tracking (`mlflow.db`) is excluded by `.gitignore` to keep the repository lightweight, you must train and register your initial champion model once inside the container environment (this compiles and builds the image first to ensure the code is updated):
 ```bash
-docker compose run --rm fastapi python ml/train_model.py
+docker compose build fastapi && docker compose run --rm fastapi python ml/train_model.py
 ```
 *(This command will compile requirements, train your 4 model candidates on the training partition, select the best model based on Validation Macro-F1, and register it as `@champion` in under 15 seconds!)*
 
@@ -112,14 +112,20 @@ docker compose up -d --build
     # 1. Stop containers and delete PostgreSQL volumes
     docker compose down -v
     
-    # 2. Bootstrap and train the initial model (Run once on fresh database)
+    # 2. Build the fastapi image first to ensure all code is updated
+    docker compose build fastapi
+    
+    # 3. Bootstrap and train the initial model (Run once on fresh database)
     docker compose run --rm fastapi python ml/train_model.py
     
-    # 3. Seed the 25-day historical backfill into Postgres
+    # 4. Seed the 25-day historical backfill into Postgres
     docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
     
-    # 4. Bring the serving servers back online
+    # 5. Bring the serving servers back online
     docker compose up -d --build
+    
+    # 6. Unpause the Airflow DAG for Automated Ingestion
+    docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
     ```
 
 ---

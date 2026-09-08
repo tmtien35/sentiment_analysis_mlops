@@ -28,44 +28,68 @@ def main():
         with open('data/dataset_hashes.txt', 'r') as f:
             hashes = f.read()
             
-    # MLOps Feedback Loop: Automatically ingest and merge newly labeled drift reviews from SQL
-    drift_date = os.environ.get("DRIFT_DATE")
+    # MLOps Feedback Loop: Automatically ingest and merge newly labeled reviews from SQL
     db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
     
     is_postgres = "postgresql" in db_url
     results_db_exists = os.path.exists("data/results.db")
     
-    if drift_date and (is_postgres or results_db_exists):
-        print(f"🏷️  MLOps Feedback Loop: Ingesting newly labeled drifted reviews from SQL database for date '{drift_date}'...")
+    if is_postgres or results_db_exists:
         from sqlalchemy import create_engine, text
         try:
             engine = create_engine(db_url)
+            # 1. Fetch ALL human-verified reviews (Active Learning Ground Truth)
             with engine.connect() as conn:
-                res = conn.execute(text("SELECT review_text FROM store_reviews WHERE review_date = :ds"), {"ds": drift_date})
-                drift_df = pd.DataFrame(res.fetchall(), columns=res.keys())
-        except Exception as e:
-            print(f" -> Skipped SQL drift ingestion due to: {e}")
-            drift_df = pd.DataFrame()
-        
-        if len(drift_df) > 0:
-            # Simple rule-based pseudo-labeler to auto-assign ground truth to the unlabeled drift batch
-            sentiments = []
-            for txt in drift_df["review_text"]:
-                txt_lower = txt.lower()
-                if "delaygator" in txt or "payment-loop" in txt or "checkout-freeze" in txt or "poor" in txt_lower or "terrible" in txt_lower or "horrible" in txt_lower or "mal" in txt_lower or "pésima" in txt_lower:
-                    sentiments.append("negative")
-                elif "love" in txt_lower or "happy" in txt_lower or "great" in txt_lower or "excellent" in txt_lower:
-                    sentiments.append("positive")
-                else:
-                    sentiments.append("neutral")
-            drift_df["sentiment"] = sentiments
+                res_verified = conn.execute(text("SELECT review_text, verified_sentiment FROM store_reviews WHERE verified_sentiment IS NOT NULL"))
+                verified_df = pd.DataFrame(res_verified.fetchall(), columns=res_verified.keys())
             
-            # Concatenate newly labeled data with historical training dataset
-            drift_clean = drift_df[["review_text", "sentiment"]]
-            train_df = pd.concat([train_df, drift_clean], ignore_index=True)
-            print(f" -> Successfully concatenated {len(drift_clean)} newly labeled SQL reviews! New training size: {len(train_df)}")
-        else:
-            print(f" -> No reviews found in SQL for drift date '{drift_date}'.")
+            if len(verified_df) > 0:
+                print(f"🏷️  Active Learning: Ingesting {len(verified_df)} human-verified (ground-truth) reviews from SQL...")
+                verified_df = verified_df.rename(columns={"verified_sentiment": "sentiment"})
+            else:
+                verified_df = pd.DataFrame()
+        except Exception as e:
+            print(f" -> Skipped SQL verified reviews ingestion due to: {e}")
+            verified_df = pd.DataFrame()
+
+        # 2. Fetch drift-date reviews if specified
+        drift_date = os.environ.get("DRIFT_DATE")
+        drift_df = pd.DataFrame()
+        if drift_date:
+            print(f"🏷️  MLOps Feedback Loop: Scanning drifted reviews for date '{drift_date}'...")
+            try:
+                with engine.connect() as conn:
+                    res_drift = conn.execute(text("SELECT review_text, verified_sentiment FROM store_reviews WHERE review_date = :ds"), {"ds": drift_date})
+                    drift_raw_df = pd.DataFrame(res_drift.fetchall(), columns=res_drift.keys())
+                
+                if len(drift_raw_df) > 0:
+                    sentiments = []
+                    for idx, row in drift_raw_df.iterrows():
+                        # If already verified by human, use it
+                        if row["verified_sentiment"] is not None and str(row["verified_sentiment"]).strip() != "" and str(row["verified_sentiment"]).lower() != "none" and str(row["verified_sentiment"]).lower() != "null":
+                            sentiments.append(row["verified_sentiment"])
+                        else:
+                            # Fallback to simple rule-based pseudo-labeler
+                            txt = row["review_text"]
+                            txt_lower = txt.lower()
+                            if "delaygator" in txt or "payment-loop" in txt or "checkout-freeze" in txt or "poor" in txt_lower or "terrible" in txt_lower or "horrible" in txt_lower or "mal" in txt_lower or "pésima" in txt_lower:
+                                sentiments.append("negative")
+                            elif "love" in txt_lower or "happy" in txt_lower or "great" in txt_lower or "excellent" in txt_lower:
+                                sentiments.append("positive")
+                            else:
+                                sentiments.append("neutral")
+                    drift_raw_df["sentiment"] = sentiments
+                    drift_df = drift_raw_df[["review_text", "sentiment"]]
+            except Exception as e:
+                print(f" -> Skipped SQL drift-date ingestion due to: {e}")
+
+        # Combine both new data sources
+        new_data = pd.concat([verified_df, drift_df], ignore_index=True)
+        if len(new_data) > 0:
+            # Deduplicate by review_text to make sure verified labels overwrite pseudo-labels
+            new_data = new_data.drop_duplicates(subset=["review_text"], keep="first")
+            train_df = pd.concat([train_df, new_data], ignore_index=True)
+            print(f" -> Successfully concatenated {len(new_data)} total new/verified SQL reviews! New training size: {len(train_df)}")
 
     print("Preprocessing text...")
     train_df['cleaned_text'] = train_df['review_text'].apply(clean_text)

@@ -54,9 +54,25 @@ def load_data():
                 df_logs = pd.read_sql("SELECT * FROM inference_logs WHERE review_text != 'init' ORDER BY timestamp DESC", con=conn.connection)
             except Exception:
                 df_logs = pd.DataFrame()
-        return df_preds, df_drift, df_logs, None
+            try:
+                query = """
+                    SELECT 
+                        s.review_id,
+                        s.review_date,
+                        s.category,
+                        s.review_text,
+                        p.predicted_sentiment,
+                        p.confidence,
+                        s.verified_sentiment
+                    FROM store_reviews s
+                    LEFT JOIN predictions p ON s.review_id = p.review_id
+                """
+                df_audit = pd.read_sql(query, con=conn.connection)
+            except Exception:
+                df_audit = pd.DataFrame()
+        return df_preds, df_drift, df_logs, df_audit, None
     except Exception as e:
-        return None, None, None, str(e)
+        return None, None, None, None, str(e)
 
 # ------------------------------------------------------------------
 # 🛠️ MLOps Incident Control Panel (Sidebar)
@@ -204,7 +220,7 @@ if is_drifted_val:
 st.title("🛍️ E-Commerce Review Sentiment & Drift Monitor")
 st.markdown("---")
 
-df_preds, df_drift, df_logs, error = load_data()
+df_preds, df_drift, df_logs, df_audit, error = load_data()
 
 if error:
     st.error(f"Error connecting to results database: {error}")
@@ -325,3 +341,91 @@ else:
         )
     else:
         st.info("No live on-demand API requests logged yet. Submit a prediction above to test!")
+
+    st.markdown("---")
+    st.markdown("### 🧠 Active Learning & Human-in-the-Loop Audit")
+    st.markdown("""
+    When model retraining validation macro-f1 fails to beat the current champion (e.g., during a data drift alert), human operators must audit the predictions of the drifted batch to provide high-fidelity training labels.
+    Select reviews below to assign correct ground-truth sentiments. These verified labels are stored directly in `store_reviews` and will be loaded natively as gold training data in the next retrain!
+    """)
+    
+    if df_audit is not None and len(df_audit) > 0:
+        # Filter options
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            audit_dates = ["All Dates"] + sorted(list(df_audit['review_date'].dropna().unique()), reverse=True)
+            selected_audit_date = st.selectbox("Filter audit table by date:", audit_dates)
+        with col_f2:
+            hide_verified = st.checkbox("Show only unverified reviews (where Human Verified Label is NULL)", value=True)
+            
+        # Apply filters
+        filtered_audit = df_audit.copy()
+        if selected_audit_date != "All Dates":
+            filtered_audit = filtered_audit[filtered_audit['review_date'] == selected_audit_date]
+        if hide_verified:
+            filtered_audit = filtered_audit[filtered_audit['verified_sentiment'].isna() | (filtered_audit['verified_sentiment'] == '') | (filtered_audit['verified_sentiment'].astype(str).lower() == 'none')]
+            
+        # Display the audit dataframe
+        st.dataframe(
+            filtered_audit[['review_id', 'review_date', 'review_text', 'predicted_sentiment', 'confidence', 'verified_sentiment']].sort_values('confidence', ascending=True),
+            height=200,
+            use_container_width=True
+        )
+        
+        # Interactive Auditing Form
+        if len(filtered_audit) > 0:
+            st.markdown("#### 📝 Edit/Verify Review Sentiment")
+            
+            # Helper to preview
+            review_snippets = filtered_audit.apply(
+                lambda row: f"{row['review_id']} | ({row['review_date']}) | AI: {str(row['predicted_sentiment']).upper()} ({row['confidence']*100:.1f}% if pd.notnull(row['confidence']) else 0.0) | {str(row['review_text'])[:50]}...",
+                axis=1
+            ).tolist()
+            
+            # Use safe formatting for snippet string list
+            review_snippets = []
+            for _, row in filtered_audit.iterrows():
+                conf_pct = f"{row['confidence']*100:.1f}%" if pd.notnull(row['confidence']) else "N/A"
+                snippet = f"{row['review_id']} | ({row['review_date']}) | AI: {str(row['predicted_sentiment']).upper()} ({conf_pct}) | {str(row['review_text'])[:50]}..."
+                review_snippets.append(snippet)
+
+            selected_snippet = st.selectbox("Select a review row to audit (sorted by lowest confidence):", review_snippets)
+            selected_id = selected_snippet.split(" | ")[0]
+            selected_row = filtered_audit[filtered_audit['review_id'] == selected_id].iloc[0]
+            
+            st.info(f"👉 **Review Text:** {selected_row['review_text']}")
+            
+            col_sel, col_btn = st.columns([2, 1])
+            with col_sel:
+                default_val_index = 0
+                if selected_row['predicted_sentiment'] == 'positive':
+                    default_val_index = 0
+                elif selected_row['predicted_sentiment'] == 'neutral':
+                    default_val_index = 1
+                elif selected_row['predicted_sentiment'] == 'negative':
+                    default_val_index = 2
+                
+                correct_label = st.radio(
+                    "Select correct sentiment:",
+                    ["positive", "neutral", "negative"],
+                    index=default_val_index,
+                    horizontal=True
+                )
+            with col_btn:
+                st.markdown("<div style='height: 25px;'></div>", unsafe_allow_html=True) # spacer
+                if st.button("💾 Submit Ground-Truth Label", use_container_width=True):
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(
+                                text("UPDATE store_reviews SET verified_sentiment = :label WHERE review_id = :id"),
+                                {"label": correct_label, "id": selected_id}
+                            )
+                        st.success(f"Success! Review `{selected_id}` verified as `{correct_label.upper()}`.")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Error saving label: {ex}")
+        else:
+            st.info("No matching unverified reviews found for the selected criteria. Good job! All reviews in this subset are fully verified.")
+    else:
+        st.info("No reviews found in database for auditing.")
