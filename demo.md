@@ -1,8 +1,8 @@
-# 🎬 MLOps Live Presentation & Demo Guide (100% Interactive & Multi-Mode)
+﻿# 🎬 MLOps Live Presentation & Demo Guide (100% Interactive & Multi-Mode)
 
 This guide outlines the step-by-step storyboard and script to demonstrate your MLOps Capstone project.
 
-The entire system is **100% offline, lightning-fast, and relies entirely on user input from your custom shop interface**.
+The entire system is **100% offline, lightning-fast, and relies entirely on user input from your custom storefront**.
 
 ---
 
@@ -43,25 +43,34 @@ docker compose up -d --build
 ## 🎭 Act I: Stable Operations & Live Customer Submission
 
 ### **What to do:**
-1.  **Submit a Review (Interactive Loop):** Open a new terminal window (or SSH session) and run our continuous storefront submitter app:
-    ```bash
-    python data/submit_review.py
-    ```
-    *   **STEP 1:** Press **Enter** to accept the default date (today: `2026-09-04`).
-    *   **STEP 2 (Continuously enter reviews - Category is automatically assigned under-the-hood!):**
+1.  **Submit Customer Reviews (Interactive CLI):** Open a new terminal window (or GCP SSH) and run our storefront submitter app:
+    *   **Local (Option A):**
+        ```bash
+        python data/submit_review.py
+        ```
+    *   **Docker (Option B):**
+        ```bash
+        docker compose exec -it fastapi python data/submit_review.py
+        ```
+    *   **The Simplified Loop:** There is **no date prompt anymore!** It automatically logs reviews under today's date in PostgreSQL/SQLite. Enter your reviews continuously:
         *   `Review #1 Text:` $\rightarrow$ Type: `"Amazing experience! Great product quality and fast shipping."` $\rightarrow$ Press **Enter**.
         *   `Review #2 Text:` $\rightarrow$ Type: `"Its okay, pretty standard item."` $\rightarrow$ Press **Enter**.
-        *   `Review #3 Text:` $\rightarrow$ Simply press **Enter** (leave empty) to finish and submit.
-    *(Both reviews are now transactionally saved in your shop database table `store_reviews` with status `is_processed = 0`)*.
+        *   `Review #3 Text:` $\rightarrow$ Simply press **Enter** (leave empty) or type `exit` to finish and submit.
+    *(Both reviews are now transactionally saved in your database table `store_reviews` with status `is_processed = 0`)*.
 
-2.  **Run Ingestion:** In your terminal, automatically process and score all outstanding reviews:
-    ```bash
-    python data/ingest_pipeline.py --ingest-daily --date 2026-09-04
-    ```
+2.  **Run Ingestion:** In your terminal (or GCP SSH), automatically ingest and score all outstanding customer reviews:
+    *   **Local (Option A):**
+        ```bash
+        python data/ingest_pipeline.py --ingest
+        ```
+    *   **Docker (Option B):**
+        ```bash
+        docker compose exec fastapi python data/ingest_pipeline.py --ingest
+        ```
     *(The pipeline automatically finds your 2 pending reviews, runs batch scoring, and locks their state by marking them `is_processed = 1`)*.
 
 3.  **UI Verification:** Open your **Streamlit** dashboard and refresh.
-    *   Today's date appears on the daily volume chart.
+    *   Today's volume chart increases.
     *   The status card is a healthy green **`✅ STABLE`** (PSI is ~0.0).
     *   Your manually entered reviews appear live in the **Scored Reviews Explorer** table!
 
@@ -70,35 +79,44 @@ docker compose up -d --build
 ## 🚨 Act II: The Production Crisis (Creating Manual Drift!)
 
 ### **What to do:**
-1.  **Submit Drifted Reviews (Simulating a shipping & customer crisis):**
-    Open your terminal and launch the submitter loop again for tomorrow's date:
-    ```bash
-    python data/submit_review.py
-    ```
-    *   **STEP 1 (Set tomorrow's date):** Type `2026-09-05` and press **Enter**.
-    *   **STEP 2 (Continuously Enter 10 Negative/Drifted Reviews):** To trigger drift, we will submit a highly-skewed batch of Spanish/weird negative complaints! Type each review followed by **Enter**:
+1.  **Submit Drifted Reviews (Simulating a customer & warehouse crisis):**
+    Open your terminal (or GCP SSH) and launch the submitter loop again:
+    *   **Local (Option A):**
+        ```bash
+        python data/submit_review.py
+        ```
+    *   **Docker (Option B):**
+        ```bash
+        docker compose exec -it fastapi python data/submit_review.py
+        ```
+    *   **Enter 10 Negative/Drifted Reviews:** To trigger drift, we will submit a highly-skewed batch of Spanish/weird negative complaints! Type each review followed by **Enter**:
         1. `"¡Muy mal servicio! El producto llegó roto y muy tarde."`
         2. `"Terrible quality, payment crashed at checkout screen."`
         3. `"Order is stuck in the DelayGator warehouse loop!"`
         4. `"¡Pésima calidad, el soporte al cliente no responde!"`
         5. `"Absolutely awful experience, returning it immediately."`
         6. `"Everything broke on first use! Unbelievable."`
-        7. `"¡No comprar! El artículo es completamente inútil."`
+        7. `"¡No comprar! El artículo es completely inútil."`
         8. `"Stuck in delivery pending loop for 10 days."`
         9. `"Extremely disappointed, a complete waste of money."`
         10. `"Worst customer service, rude and slow."`
-    *   **STEP 3:** Leave the next review text empty and press **Enter** to submit all 10 reviews.
+    *   **STEP 3:** Leave the next review text empty and press **Enter** (or type `exit`) to submit all 10 reviews.
 
-2.  **Process the Drifted Batch:** Run the daily pipeline for tomorrow's date:
-    ```bash
-    python data/ingest_pipeline.py --ingest-daily --date 2026-09-05
-    ```
-    *(The pipeline scores the 10 reviews. Because 100% of tomorrow's reviews are negative/drifted, the prediction distribution shifts heavily. PSI spikes to `~4.08`—well above the `0.15` safety threshold!)*
+2.  **Process the Drifted Batch:** Run the ingestion pipeline to automatically detect and score the new outstanding reviews:
+    *   **Local (Option A):**
+        ```bash
+        python data/ingest_pipeline.py --ingest
+        ```
+    *   **Docker (Option B):**
+        ```bash
+        docker compose exec fastapi python data/ingest_pipeline.py --ingest
+        ```
+    *(The pipeline scores the 10 reviews. Because 100% of these new reviews are negative/drifted, the prediction distribution shifts heavily. PSI spikes to `~4.08`—well above the `0.15` safety threshold!)*
 
 3.  **UI & Self-Healing Verification:** 
     *   **Refresh Streamlit:** Watch the dashboard status instantly flip to a flashing red **`⚠️ DRIFT ALERT`**! The PSI Score plot spikes into the warning zone.
-    *   **Alert Generation:** Open the local HTML email generated at `data/alerts/drift_alert_2026_09_05.html` in your browser.
-    *   **Self-Healing Log:** Look at your server console. Show the judges how the system **automatically automatically detected the drift, trigger retraining, and update the champion model, triggered retraining, read the drifted reviews directly from the SQL database, auto-labeled them, evaluated the candidate model, registered version, and promoted it to `@champion` completely hands-free!**
+    *   **Alert Generation:** Open the local HTML email generated at `data/alerts/drift_alert_[date].html` in your browser.
+    *   **Self-Healing Log:** Look at your server console. Show the judges how the system **automatically detected the drift, triggered retraining, read the drifted reviews directly from the SQL database, auto-labeled them, evaluated the candidate model, registered version, and promoted it to `@champion` completely hands-free!**
         `🚨 [SELF-HEALING] Data Drift Detected! Triggering automated retraining...`
         `🚨 [SELF-HEALING] Retraining completed successfully! Model updated to @champion.`
 
@@ -116,7 +134,7 @@ Show the judges how you can actively manage production alerts and bypass model p
 1.  In the sidebar, under **Continuous Training**, click the **`Trigger Retrain Manual`** button.
 2.  Watch the spinner run. In under 10 seconds, it will complete and pop a green:
     `🏆 Model Retrained Successfully! New @champion promoted.`
-3.  **Result:** The background system executed `ml/train_model.py`, registered a brand new model version (e.g. Version 11), and automatically pointed the `@champion` alias to it! You can verify this Version increase live on **MLflow** (`http://[IP_Google_Cloud]:5000`).
+3.  **Result:** The background system executed `ml/train_model.py`, registered a brand new model version, and automatically pointed the `@champion` alias to it! You can verify this Version increase live on **MLflow** (`http://[IP_Google_Cloud]:5000`).
 
 ### **3. Test the "Switch to Fallback Rules" (Gạt cầu chì ngắt AI - Circuit Breaker):**
 Let's simulate a situation where your AI model behaves erratically, and you need to bypass it instantly to ensure business continuity.

@@ -28,15 +28,25 @@ def main():
         with open('data/dataset_hashes.txt', 'r') as f:
             hashes = f.read()
             
-    # MLOps Feedback Loop: Automatically ingest and merge newly labeled drift reviews from SQLite if drift occurred
+    # MLOps Feedback Loop: Automatically ingest and merge newly labeled drift reviews from SQL
     drift_date = os.environ.get("DRIFT_DATE")
-    db_path = "data/results.db"
-    if drift_date and os.path.exists(db_path):
-        print(f"\n🏷️  MLOps Feedback Loop: Ingesting newly labeled drifted reviews from SQLite for date '{drift_date}'...")
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        drift_df = pd.read_sql_query("SELECT review_text FROM store_reviews WHERE review_date = ?", conn, params=(drift_date,))
-        conn.close()
+    db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
+    
+    is_postgres = "postgresql" in db_url
+    results_db_exists = os.path.exists("data/results.db")
+    
+    if drift_date and (is_postgres or results_db_exists):
+        print(f"
+🏷️  MLOps Feedback Loop: Ingesting newly labeled drifted reviews from SQL database for date '{drift_date}'...")
+        from sqlalchemy import create_engine, text
+        try:
+            engine = create_engine(db_url)
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT review_text FROM store_reviews WHERE review_date = :ds"), {"ds": drift_date})
+                drift_df = pd.DataFrame(res.fetchall(), columns=res.keys())
+        except Exception as e:
+            print(f" -> Skipped SQL drift ingestion due to: {e}")
+            drift_df = pd.DataFrame()
         
         if len(drift_df) > 0:
             # Simple rule-based pseudo-labeler to auto-assign ground truth to the unlabeled drift batch
