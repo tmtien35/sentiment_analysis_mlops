@@ -38,6 +38,13 @@ docker compose up -d --build
 ```
 *   **Websites to Open:** Replace `localhost` with your **`IP_Google_Cloud`** (e.g., `http://[IP_Google_Cloud]:8501`, `http://[IP_Google_Cloud]:5000`, `http://[IP_Google_Cloud]:8080`).
 
+⚠️ **IMPORTANT: ACTIVATE THE DAILY SCHEDULER (Airflow DAG)**
+By default, new Airflow DAGs are paused. To ensure that your reviews are automatically processed and scored every single midnight, you must **unpause your DAG**! Run this command once in your GCP SSH Terminal:
+```bash
+docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
+```
+*(You can also activate it by clicking the blue toggle switch next to `daily_sentiment_analysis` inside the Airflow Web UI!)*
+
 ---
 
 ## 🎭 Act I: Stable Operations & Live Customer Submission

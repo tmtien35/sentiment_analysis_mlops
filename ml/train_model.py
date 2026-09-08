@@ -145,8 +145,7 @@ def main():
         os.remove(fig_path)
         
     # Unbiased single evaluation on test partition
-    print(f"
-Evaluating candidate on unseen test set...")
+    print("\nEvaluating candidate on unseen test set...")
     test_preds = pipeline.predict(test_df['cleaned_text'])
     y_test_true = test_df['sentiment']
     
@@ -159,8 +158,7 @@ Evaluating candidate on unseen test set...")
         mlflow.log_metric("test_macro_f1", test_f1)
         
     # Register model programmatically
-    print("
-Registering model...")
+    print("\nRegistering model...")
     model_uri = f"runs:/{run_id}/model"
     model_name_reg = "ecommerce-sentiment-model"
     model_details = mlflow.register_model(model_uri=model_uri, name=model_name_reg)

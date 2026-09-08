@@ -88,6 +88,11 @@ docker compose up -d --build
 *   **Where to Open in Browser:**
     *   **Streamlit Analytics Dashboard:** [http://localhost:8501](http://localhost:8501) *(connected live to PostgreSQL)*
     *   **Orchestration UI (Airflow):** [http://localhost:8080](http://localhost:8080) *(Username: `mlops` \| Password: `mlops`)*
+        *⚠️ IMPORTANT: New DAGs are paused by default in Airflow! To enable truly automated daily ingestion at midnight, you must UNPAUSE your DAG by running this command:*
+        ```bash
+        docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
+        ```
+        *Or by clicking the blue toggle switch next to `daily_sentiment_analysis` inside the Airflow Web UI!*
     *   **Experiment Registry (MLflow):** [http://localhost:5000](http://localhost:5000)
     *   **On-Demand Serving (FastAPI Docs):** [http://localhost:8000/docs](http://localhost:8000/docs)
 *   **How to Stop (Keep Data):** To cleanly stop all background containers while preserving your persistent database history, run:
