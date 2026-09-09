@@ -439,36 +439,69 @@ else:
                     use_container_width=True, hide_index=True
                 )
                 
-                if st.button("💾 Save All Bulk Edits", use_container_width=True):
-                    updates = []
-                    for _, row in edited_df.iterrows():
-                        r_id = row['review_id']
-                        orig_row = display_df[display_df['review_id'] == r_id].iloc[0]
-                        orig_val = orig_row['verified_sentiment']
-                        new_val = row['verified_sentiment']
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("💾 Save Manually Edited Rows Only", use_container_width=True):
+                        updates = []
+                        for _, row in edited_df.iterrows():
+                            r_id = row['review_id']
+                            orig_row = display_df[display_df['review_id'] == r_id].iloc[0]
+                            orig_val = orig_row['verified_sentiment']
+                            new_val = row['verified_sentiment']
+                            
+                            orig_val_str = str(orig_val).strip().lower() if pd.notnull(orig_val) else "none"
+                            new_val_str = str(new_val).strip().lower() if pd.notnull(new_val) else "none"
+                            
+                            if orig_val_str != new_val_str:
+                                db_val = new_val if pd.notnull(new_val) and str(new_val).strip() != "" else None
+                                updates.append({"id": r_id, "label": db_val})
                         
-                        orig_val_str = str(orig_val).strip().lower() if pd.notnull(orig_val) else "none"
-                        new_val_str = str(new_val).strip().lower() if pd.notnull(new_val) else "none"
-                        
-                        if orig_val_str != new_val_str:
-                            db_val = new_val if pd.notnull(new_val) and str(new_val).strip() != "" else None
+                        if len(updates) > 0:
+                            try:
+                                with engine.begin() as conn:
+                                    for upd in updates:
+                                        conn.execute(
+                                            text("UPDATE store_reviews SET verified_sentiment = :label WHERE review_id = :id"),
+                                            {"label": upd["label"], "id": upd["id"]}
+                                        )
+                                st.success(f"🎉 Successfully saved {len(updates)} bulk edits!")
+                                st.cache_data.clear()
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"Error saving bulk edits: {ex}")
+                        else:
+                            st.info("No modifications detected.")
+                            
+                with col_btn2:
+                    if st.button("✅ Bulk Approve Remaining AI Predictions", use_container_width=True):
+                        updates = []
+                        for _, row in edited_df.iterrows():
+                            r_id = row['review_id']
+                            new_val = row['verified_sentiment']
+                            
+                            # If no manual verified_sentiment is entered, approve the AI predicted sentiment
+                            if not pd.notnull(new_val) or str(new_val).strip() == "" or str(new_val).lower() == "none" or str(new_val).lower() == "nan":
+                                db_val = row['predicted_sentiment']
+                            else:
+                                db_val = new_val
+                                
                             updates.append({"id": r_id, "label": db_val})
-                    
-                    if len(updates) > 0:
-                        try:
-                            with engine.begin() as conn:
-                                for upd in updates:
-                                    conn.execute(
-                                        text("UPDATE store_reviews SET verified_sentiment = :label WHERE review_id = :id"),
-                                        {"label": upd["label"], "id": upd["id"]}
-                                    )
-                            st.success(f"🎉 Successfully saved {len(updates)} bulk edits!")
-                            st.cache_data.clear()
-                            st.rerun()
-                        except Exception as ex:
-                            st.error(f"Error saving bulk edits: {ex}")
-                    else:
-                        st.info("No modifications detected.")
+                            
+                        if len(updates) > 0:
+                            try:
+                                with engine.begin() as conn:
+                                    for upd in updates:
+                                        conn.execute(
+                                            text("UPDATE store_reviews SET verified_sentiment = :label WHERE review_id = :id"),
+                                            {"label": upd["label"], "id": upd["id"]}
+                                        )
+                                st.success(f"🎉 Successfully approved and saved {len(updates)} predictions to the database!")
+                                st.cache_data.clear()
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"Error bulk approving predictions: {ex}")
+                        else:
+                            st.info("No predictions found to approve.")
             else:
                 st.success("🎉 No reviews requiring manual audit found for the selected filters!")
         else:
