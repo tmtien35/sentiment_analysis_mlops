@@ -155,6 +155,7 @@ def main():
         # Log params & metrics
         mlflow.log_param("clf__alpha", 1.0)
         mlflow.log_param("dataset_hashes", hashes)
+        mlflow.log_param("train_dataset_size", len(train_df))
         mlflow.log_metric("accuracy", acc)
         mlflow.log_metric("macro_precision", prec)
         mlflow.log_metric("macro_recall", rec)

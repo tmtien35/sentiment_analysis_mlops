@@ -25,6 +25,12 @@ def initialize_settings_table(conn):
     res = conn.execute(text("SELECT value FROM system_settings WHERE key = 'serving_mode'"))
     if res.fetchone() is None:
         conn.execute(text("INSERT INTO system_settings VALUES ('serving_mode', 'ml')"))
+    
+    # Idempotently add verified_sentiment column if missing
+    try:
+        conn.execute(text("ALTER TABLE store_reviews ADD COLUMN verified_sentiment TEXT DEFAULT NULL;"))
+    except Exception:
+        pass
 
 def get_setting(conn, key, default):
     try:
@@ -350,10 +356,24 @@ else:
     failed_reports = glob.glob(os.path.join("data", "alerts", "retrain_failed_*.html"))
     has_gatekeeper_failure = len(failed_reports) > 0
     
-    if not has_gatekeeper_failure:
-        st.success("🔒 **Audit Panel Locked (Healthy)**: The current production champion model is running smoothly, and no automatic retraining has failed the gatekeeper. Human intervention is not required at this time.")
+    # Check if there is an active unmuted data drift alert
+    is_drift_active = False
+    drift_date_val = None
+    if df_drift is not None and len(df_drift) > 0:
+        latest_drift_val = df_drift.iloc[-1]
+        is_drift_active = latest_drift_val['drift_detected'] == 1
+        drift_date_val = latest_drift_val['batch_date']
+        
+    is_unlocked = has_gatekeeper_failure or is_drift_active
+    
+    if not is_unlocked:
+        st.success("🔒 **Audit Panel Locked (Healthy)**: The current production champion model is running smoothly, and no active data drift alert or gatekeeper failure is present. Human intervention is not required at this time.")
     else:
-        st.warning("🔓 **Audit Panel Unlocked (Gatekeeping Failure Detected)**: The last automated model retraining failed the gatekeeper because the candidate's validation score did not beat the champion. Human auditing is required for reviews in the drifted batch!")
+        if has_gatekeeper_failure:
+            st.warning("🔓 **Audit Panel Unlocked (Gatekeeping Failure Detected)**: The last automated model retraining failed the gatekeeper because the candidate's validation score did not beat the champion. Human auditing is required for reviews in the drifted batch!")
+        elif is_drift_active:
+            st.warning(f"🔓 **Audit Panel Unlocked (Active Data Drift Alert)**: A data drift alert (unmuted) was detected on batch {drift_date_val}! Human operators should audit and label reviews in this drifted batch to ensure retraining is highly accurate.")
+            
         st.markdown("Double-click cells in the **Human Verified Label** column to assign correct ground-truth sentiments in bulk, then click the **Save All Bulk Edits** button!")
         
         if df_audit is not None and len(df_audit) > 0:
