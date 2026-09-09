@@ -384,11 +384,7 @@ else:
             # Auditing Scope & Filter options
             col_scope, col_verified = st.columns(2)
             with col_scope:
-                audit_scope = st.radio(
-                    "Select Auditing Scope:",
-                    ["Show only Audit Candidates (Reviews from Drifted Dates)", "Show All Reviews (Including Healthy Reviews)"],
-                    index=0, horizontal=True
-                )
+                only_drifted = st.checkbox("Show only reviews from drifted dates", value=True)
             with col_verified:
                 hide_verified = st.checkbox("Show only unverified reviews (where Human Verified Label is NULL)", value=True)
                 
@@ -410,7 +406,7 @@ else:
                     (filtered_audit['verified_sentiment'].astype(str).str.lower() == 'nan')
                 ]
                 
-            if audit_scope == "Show only Audit Candidates (Reviews from Drifted Dates)":
+            if only_drifted:
                 is_drifted_date = filtered_audit['review_date'].isin(drifted_dates)
                 filtered_audit = filtered_audit[is_drifted_date]
                 
