@@ -87,6 +87,7 @@ st.sidebar.markdown("## 🛠️ MLOps Incident Control Panel")
 st.sidebar.markdown("Use these manual overrides to respond to production incidents in real-time.")
 
 engine = get_db_engine()
+df_preds, df_drift, df_logs, df_audit, error = load_data()
 
 # Fetch active model versions from MLflow Registry for audit trail
 champion_version = "None"
@@ -225,8 +226,6 @@ if is_drifted_val:
 
 st.title("🛍️ E-Commerce Review Sentiment & Drift Monitor")
 st.markdown("---")
-
-df_preds, df_drift, df_logs, df_audit, error = load_data()
 
 if error:
     st.error(f"Error connecting to results database: {error}")
