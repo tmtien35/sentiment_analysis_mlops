@@ -274,7 +274,7 @@ else:
         for col in ['negative', 'neutral', 'positive']:
             if col not in daily_trends.columns:
                 daily_trends[col] = 0
-        st.line_chart(daily_trends[['negative', 'neutral', 'positive']], color=["#e74c3c", "#d35400", "#2ecc71"])
+        st.line_chart(daily_trends[['negative', 'neutral', 'positive']], color=["#e74c3c", "#f1c40f", "#2ecc71"])
 
     col_sub1, col_sub2 = st.columns(2)
     with col_sub1:
@@ -284,7 +284,7 @@ else:
             for col in ['negative', 'neutral', 'positive']:
                 if col not in cat_trends.columns:
                     cat_trends[col] = 0
-            st.bar_chart(cat_trends[['negative', 'neutral', 'positive']], color=["#e74c3c", "#d35400", "#2ecc71"])
+            st.bar_chart(cat_trends[['negative', 'neutral', 'positive']], color=["#e74c3c", "#f1c40f", "#2ecc71"])
         else:
             st.info("Category breakdown will appear once category data is ingested.")
 
@@ -325,7 +325,7 @@ else:
                 "Uncertainty Tier": ["🟢 High (≥80%)", "🟡 Moderate (60-79%)", "🔴 Low / Uncertain (<60%)"],
                 "Review Count": [high_cnt, mod_cnt, low_cnt]
             }).set_index("Uncertainty Tier")
-            st.bar_chart(bucket_df, color="#e67e22")
+            st.bar_chart(bucket_df, color="#3498db")
             
     with col_unc2:
         st.subheader("Uncertainty Tier Breakdown")
