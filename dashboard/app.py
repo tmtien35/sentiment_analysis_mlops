@@ -271,20 +271,20 @@ else:
     with col_chart2:
         st.subheader("Daily Sentiment Volume Timeline")
         daily_trends = df_preds.groupby(['review_date', 'predicted_sentiment']).size().unstack(fill_value=0)
-        for col in ['positive', 'neutral', 'negative']:
+        for col in ['negative', 'neutral', 'positive']:
             if col not in daily_trends.columns:
                 daily_trends[col] = 0
-        st.line_chart(daily_trends[['positive', 'neutral', 'negative']], color=["#2ecc71", "#d35400", "#e74c3c"])
+        st.line_chart(daily_trends[['negative', 'neutral', 'positive']], color=["#e74c3c", "#d35400", "#2ecc71"])
 
     col_sub1, col_sub2 = st.columns(2)
     with col_sub1:
         st.subheader("Category Sentiment Breakdown")
         if 'category' in df_preds.columns and len(df_preds['category'].dropna()) > 0:
             cat_trends = df_preds.groupby(['category', 'predicted_sentiment']).size().unstack(fill_value=0)
-            for col in ['positive', 'neutral', 'negative']:
+            for col in ['negative', 'neutral', 'positive']:
                 if col not in cat_trends.columns:
                     cat_trends[col] = 0
-            st.bar_chart(cat_trends[['positive', 'neutral', 'negative']], color=["#2ecc71", "#d35400", "#e74c3c"])
+            st.bar_chart(cat_trends[['negative', 'neutral', 'positive']], color=["#e74c3c", "#d35400", "#2ecc71"])
         else:
             st.info("Category breakdown will appear once category data is ingested.")
 
