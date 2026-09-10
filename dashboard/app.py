@@ -276,6 +276,28 @@ else:
                 daily_trends[col] = 0
         st.line_chart(daily_trends, color=["#e74c3c", "#95a5a6", "#2ecc71"])
 
+    col_sub1, col_sub2 = st.columns(2)
+    with col_sub1:
+        st.subheader("Category Sentiment Breakdown")
+        if 'category' in df_preds.columns and len(df_preds['category'].dropna()) > 0:
+            cat_trends = df_preds.groupby(['category', 'predicted_sentiment']).size().unstack(fill_value=0)
+            for col in ['positive', 'neutral', 'negative']:
+                if col not in cat_trends.columns:
+                    cat_trends[col] = 0
+            st.bar_chart(cat_trends[['positive', 'neutral', 'negative']])
+        else:
+            st.info("Category breakdown will appear once category data is ingested.")
+
+    with col_sub2:
+        st.subheader("Average Confidence by Sentiment Class")
+        if 'confidence' in df_preds.columns and 'predicted_sentiment' in df_preds.columns:
+            conf_scale = 100 if df_preds['confidence'].max() <= 1.0 else 1
+            conf_by_class = (df_preds.groupby('predicted_sentiment')['confidence'].mean() * conf_scale).round(1)
+            for col in ['positive', 'neutral', 'negative']:
+                if col not in conf_by_class.index:
+                    conf_by_class[col] = 0.0
+            st.bar_chart(conf_by_class[['positive', 'neutral', 'negative']], color="#16a085")
+
     st.markdown("### ⚠️ Model Health & Data Drift Monitoring")
     col_drift1, col_drift2 = st.columns(2)
     
@@ -288,6 +310,39 @@ else:
         st.subheader("Average Prediction Confidence")
         df_conf = df_drift.set_index('batch_date')[['avg_confidence']]
         st.line_chart(df_conf, color="#1abc9c")
+
+    col_unc1, col_unc2 = st.columns([1, 1])
+    with col_unc1:
+        st.subheader("Confidence Uncertainty Distribution")
+        if 'confidence' in df_preds.columns and len(df_preds) > 0:
+            c_scale = 100 if df_preds['confidence'].max() <= 1.0 else 1
+            conf_vals = df_preds['confidence'] * c_scale
+            high_cnt = int((conf_vals >= 80).sum())
+            mod_cnt = int(((conf_vals >= 60) & (conf_vals < 80)).sum())
+            low_cnt = int((conf_vals < 60).sum())
+            
+            bucket_df = pd.DataFrame({
+                "Uncertainty Tier": ["🟢 High (≥80%)", "🟡 Moderate (60-79%)", "🔴 Low / Uncertain (<60%)"],
+                "Review Count": [high_cnt, mod_cnt, low_cnt]
+            }).set_index("Uncertainty Tier")
+            st.bar_chart(bucket_df, color="#e67e22")
+            
+    with col_unc2:
+        st.subheader("Uncertainty Tier Breakdown")
+        total_c = len(df_preds)
+        if total_c > 0 and 'confidence' in df_preds.columns:
+            pct_high = (high_cnt / total_c) * 100
+            pct_mod = (mod_cnt / total_c) * 100
+            pct_low = (low_cnt / total_c) * 100
+            
+            col_u1, col_u2, col_u3 = st.columns(3)
+            with col_u1:
+                st.metric("🟢 High Confidence", f"{high_cnt:,}", f"{pct_high:.1f}%")
+            with col_u2:
+                st.metric("🟡 Moderate", f"{mod_cnt:,}", f"{pct_mod:.1f}%")
+            with col_u3:
+                st.metric("🔴 Uncertain (<60%)", f"{low_cnt:,}", f"{pct_low:.1f}%", delta_color="inverse")
+            st.info("💡 **MLOps Insight:** Reviews in the **🔴 Low / Uncertain** tier represent candidate samples prioritized for Active Learning human audit.")
 
     st.markdown("---")
     col_test, col_table = st.columns([2, 3])
@@ -382,6 +437,43 @@ else:
             drifted_dates = []
             if df_drift is not None and len(df_drift) > 0:
                 drifted_dates = df_drift[df_drift['drift_detected'] >= 1]['batch_date'].tolist()
+
+            # Human-in-the-Loop Agreement & Calibration Metrics
+            audited_mask = (
+                df_audit['verified_sentiment'].notna() &
+                (df_audit['verified_sentiment'] != '') &
+                (df_audit['verified_sentiment'].astype(str).str.lower() != 'none') &
+                (df_audit['verified_sentiment'].astype(str).str.lower() != 'nan') &
+                (df_audit['verified_sentiment'].astype(str).str.lower() != 'null')
+            )
+            df_verified = df_audit[audited_mask]
+            total_audited = len(df_verified)
+            total_pool = len(df_audit)
+            
+            if total_audited > 0:
+                agreements = (df_verified['predicted_sentiment'].str.lower() == df_verified['verified_sentiment'].str.lower()).sum()
+                agreement_rate = (agreements / total_audited) * 100
+                overrides = total_audited - agreements
+            else:
+                agreement_rate = None
+                overrides = 0
+
+            st.markdown("#### 🤝 Human-AI Calibration & Audit Progress")
+            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+            with col_m1:
+                st.metric("Audited Reviews", f"{total_audited:,}", help="Total reviews with ground-truth verified by human operators")
+            with col_m2:
+                if agreement_rate is not None:
+                    st.metric("Human-AI Agreement", f"{agreement_rate:.1f}%", help="Percentage of AI predictions confirmed correct by human audit")
+                else:
+                    st.metric("Human-AI Agreement", "N/A", delta="Pending audit")
+            with col_m3:
+                st.metric("Human Overrides", f"{overrides:,}", help="Cases where human operator corrected AI prediction")
+            with col_m4:
+                cov = (total_audited / total_pool * 100) if total_pool > 0 else 0
+                st.metric("Audit Coverage", f"{cov:.1f}%", help="Percentage of total review dataset audited")
+            
+            st.markdown("---")
 
             # Auditing Scope & Filter options
             col_scope, col_verified = st.columns(2)
