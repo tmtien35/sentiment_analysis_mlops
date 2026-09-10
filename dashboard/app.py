@@ -274,7 +274,7 @@ else:
         for col in ['positive', 'neutral', 'negative']:
             if col not in daily_trends.columns:
                 daily_trends[col] = 0
-        st.line_chart(daily_trends, color=["#e74c3c", "#95a5a6", "#2ecc71"])
+        st.line_chart(daily_trends[['positive', 'neutral', 'negative']], color=["#2ecc71", "#d35400", "#e74c3c"])
 
     col_sub1, col_sub2 = st.columns(2)
     with col_sub1:
@@ -284,7 +284,7 @@ else:
             for col in ['positive', 'neutral', 'negative']:
                 if col not in cat_trends.columns:
                     cat_trends[col] = 0
-            st.bar_chart(cat_trends[['positive', 'neutral', 'negative']])
+            st.bar_chart(cat_trends[['positive', 'neutral', 'negative']], color=["#2ecc71", "#d35400", "#e74c3c"])
         else:
             st.info("Category breakdown will appear once category data is ingested.")
 
