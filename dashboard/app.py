@@ -196,6 +196,7 @@ if st.sidebar.button("Trigger Retrain Manual"):
             res = subprocess.run([sys.executable, "ml/train_model.py"], env=env, capture_output=True, text=True)
             if res.returncode == 0:
                 st.sidebar.success("🏆 Retraining Completed!")
+                st.cache_data.clear()
                 st.rerun()
             else:
                 st.sidebar.error("Retrain failed/aborted. Check data/alerts/ for reports.")
@@ -219,6 +220,7 @@ if is_drifted_val:
         try:
             with engine.begin() as conn:
                 conn.execute(text("UPDATE drift_metrics SET drift_detected = 2 WHERE batch_date = :ds"), {"ds": drift_date_val})
+            st.cache_data.clear()
             st.sidebar.success("Alert Muted successfully!")
             st.rerun()
         except Exception as e:
@@ -321,6 +323,7 @@ else:
                         st.session_state["last_sentiment"] = sent
                         st.session_state["last_prediction"] = f"**Predicted Sentiment:** {sent.upper()} ({conf:.1f}% confidence)"
                         # Trigger an instant rerun so that load_data() executes again and fetches the new database row immediately!
+                        st.cache_data.clear()
                         st.rerun()
                     else:
                         st.error(f"FastAPI error code: {res.status_code}")
