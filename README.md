@@ -130,6 +130,36 @@ docker compose up -d --build
 
 ---
 
+## 📊 Monitoring, Self-Healing & Retraining Logs
+
+To easily monitor continuous batch scoring, data drift alerts, and the automated self-healing retraining loop, the pipeline aggregates detailed logging across **4 primary sources**:
+
+### **1. Automated Self-Healing Logs (Airflow Orchestration)**
+When the daily batch scoring DAG detects data drift and automatically triggers the retraining loop, all stdout/stderr logs are captured inside Airflow.
+*   **Where to inspect:** Inside the **Airflow Web UI** (`http://localhost:8080`).
+*   **How to view:** Log in with `mlops / mlops` ➔ Click the **`daily_sentiment_analysis`** (or batch scoring) DAG ➔ Select the latest completed scoring task (marked green) ➔ Click the **`Log`** tab at the top. Here, you will see the complete terminal logs of the model retraining process, including SQL ingestion, TF-IDF feature weights shift, evaluation, and programmatical MLflow registration.
+
+### **2. Manual Retraining Logs (Streamlit Container)**
+When an administrator triggers manual retraining by clicking the **`Trigger Retrain Manual`** button on the Streamlit sidebar, the script runs inside the Streamlit container.
+*   **Where to inspect:** Streamlit service terminal stdout.
+*   **How to view:** Open your SSH VM console or local terminal and run:
+    ```bash
+    docker compose logs -f streamlit
+    ```
+    This will stream real-time logs from `ml/train_model.py` as it compiles validation metrics, merges newly labeled rows, and validates against the champion.
+
+### **3. Model Comparison & Metadata Logs (MLflow Registry)**
+Every successful retraining run that passes the automated validation Gatekeeper is registered and versioned.
+*   **Where to inspect:** The **MLflow Web UI** (`http://localhost:5000`).
+*   **How to view:** Select your active run ➔ Audit key hyperparameters, validation scores (Macro-F1, Accuracy), the **`train_dataset_size`** parameter (proving newly verified labels were ingested!), and view the interactive validation `Confusion Matrix` inside the artifacts section.
+
+### **4. Retraining Incident Reports (Gatekeeper Failure Logs)**
+If the retraining candidate fails to outperform the current champion, the automated Gatekeeper aborts registration and dumps a persistent HTML incident report.
+*   **Where to inspect:** On the VM host filesystem inside **`data/alerts/`**.
+*   **How to view:** Check for files named `retrain_failed_YYYY_MM_DD_HHMM.html`. These reports break down the macro-F1 scores of both models side-by-side, explaining why the update was blocked to keep the serving layer stable.
+
+---
+
 ## 🛠️ Linux VM & Docker Troubleshooting
 
 If you are deploying on a fresh Linux Cloud Server (such as **Google Cloud Platform VM / AWS EC2**) or an older machine, you may encounter system-level Docker version conflicts. Here is how to resolve them instantly:
