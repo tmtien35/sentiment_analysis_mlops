@@ -146,11 +146,15 @@ Show the judges how you can actively manage production alerts and bypass model p
 ### **2. Test the "Active Learning & Human-in-the-Loop Audit" (Gán nhãn sửa lỗi trực tiếp trên giao diện):**
 Before triggering manual retraining, let's play the role of an Admin auditing the database to correct model misclassifications directly from the web browser:
 1. Scroll down to the **🧠 Active Learning & Human-in-the-Loop Audit** section at the bottom of the page.
-2. Here, you'll see a list of scored reviews sorted by **lowest confidence** (Uncertainty Sampling).
-3. Find an interesting review (e.g. one with low confidence or showing a mismatch between the text and AI's prediction).
-4. Under **📝 Edit/Verify Review Sentiment**, select that review from the dropdown.
-5. In the radio buttons, select the correct sentiment (e.g., changing a low-confidence `neutral` to `negative` or `positive`), and click **`💾 Submit Ground-Truth Label`**.
-6. **Result:** The system transactionally updates `verified_sentiment` in `store_reviews` and instantly refreshes the page, displaying your correction in the table! This means you can audit and fix labels entirely in your browser without touching SQL command lines.
+   * *Notice:* The panel is highly smart and secure. It remains **`🔒 Locked (Healthy)`** under normal conditions to prevent unauthorized edits. It automatically **`🔓 Unlocks`** when a Data Drift alert is active or when retraining fails the validation gate.
+2. Here, you'll see a list of scored reviews sorted by **lowest confidence** (Uncertainty Sampling). Notice that by default, healthy reviews are filtered out—only candidates from **Drifted Dates** are shown!
+3. You can toggle filters using the checkboxes:
+   * `Show only reviews from drifted dates` (checked by default).
+   * `Show only unverified reviews (where Human Verified Label is NULL)` (checked by default).
+4. Under **📝 Edit and Verify Review Sentiments in Bulk**:
+   * To correct an AI prediction: Double-click any cell in the **Human Verified Label** column, choose the correct sentiment (positive, neutral, negative), and click **`💾 Save Manually Edited Rows Only`**.
+   * To approve AI predictions in 1-Click: If the remaining AI predictions are correct, simply click **`✅ Bulk Approve Remaining AI Predictions`**!
+5. **Result:** The system transactionally updates `verified_sentiment` in `store_reviews` and instantly refreshes the page, clearing those reviews from the audit list! You can audit and verify hundreds of drifted reviews in bulk in under 10 seconds, without ever typing a SQL command line.
 
 ### **3. Test the "Trigger Retrain Manual" (Cưỡng bức học máy):**
 Now that you have supplied real, gold-standard human-verified labels:

@@ -237,11 +237,19 @@ If you need to execute individual pipeline steps manually, ensure `PYTHONPATH` i
 
 ---
 
+## 🌟 Advanced Production Features (MLOps Maturity Level Up)
+
+While standard academic projects stop at basic drift detection, this production-ready pipeline implements advanced enterprise-grade features:
+
+*   **Active Learning & Human-in-the-Loop Audit (Ground-truth Feedback Loop):** Operators can audit model predictions in bulk directly on the Streamlit dashboard using an interactive, spreadsheet-like grid (`st.data_editor`). Features a smart **1-Click Bulk Approval** mechanism that clones predictions into human-verified ground-truth labels. The stateless retraining loop (`train_model.py`) natively scans `store_reviews` for these human overrides (`verified_sentiment IS NOT NULL`), merges them as gold training labels, and expands the model's vocabulary dynamically!
+*   **Dual-Model Canary Splitting:** We map `@champion` and `@contender` model aliases in MLflow. When a candidate model is registered, an interactive Canary Traffic Split slider (0-100%) appears on the Streamlit sidebar, allowing operators to direct a randomized percentage of live API traffic to the challenger while prefixing logs (`[CANARY RUN]` vs `[CHAMPION RUN]`) to safely validate performance before full promotion.
+*   **On-Demand Serving Circuit Breaker:** Features a served-mode fallback toggle in the dashboard sidebar that instantly redirects FastAPI traffic from the ML model to a deterministic, keyword-based safe-mode rule classifier in case of production anomalies, ensuring business continuity.
+
+---
+
 ## 🧠 Scoped Gaps & Production Trade-offs (MLOps Maturity)
 
 To maintain lightweight grading agility, several enterprise-level elements were consciously scoped out:
 
-*   **Ground-truth accuracy monitoring:** Our pipeline detects *input drift* without labels (using PSI on predictions). Production environments require a feedback loop (sending a 5% sample of predictions to human labeling queues like AWS SageMaker Ground Truth).
-*   **Canary/Shadow Deployments:** Model updates currently promote immediately via the `@champion` alias. Production systems require traffic-splitting proxies (like Seldon Core or BentoML) to run candidates in shadow mode.
 *   **Autoscaling Infrastructure:** Docker Compose is suitable for single-host VM setups. High-throughput loads require Kubernetes (EKS/GKE) with Horizontal Pod Autoscalers (HPA).
 *   **Production Secrets Management:** plain-text files are used for this demo. Enterprise platforms require secured secret key vaults (like HashiCorp Vault or AWS Secrets Manager).
