@@ -110,7 +110,7 @@ async def lifespan(app: FastAPI):
         print("Loading registered model '@champion' from MLflow Registry...")
         # Point to our local SQLite DB tracking store
         mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
-        model_uri = "models:/ecommerce-sentiment-model@champion"
+        model_uri = "models:/ev-sentiment-model@champion"
         model = mlflow.sklearn.load_model(model_uri)
         print("Model loaded successfully!")
         
@@ -141,14 +141,36 @@ class PredictionResponse(BaseModel):
 # 4. Predict Endpoint
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
+    if not request.review_text.strip():
+        raise HTTPException(status_code=400, detail="Review text cannot be empty.")
+    
+    # Check circuit breaker serving mode
+    engine = get_db_engine()
+    serving_mode = "ml"
+    try:
+        with engine.connect() as conn:
+            serving_mode = get_setting(conn, "serving_mode", "ml")
+    except Exception:
+        pass
+
+    if serving_mode == "fallback":
+        res = fallback_rule_classifier(request.review_text)
+        prediction = res["predicted_sentiment"]
+        confidence = float(res["confidence"])
+        cleaned = clean_text(request.review_text) + " [RULE-BASED FALLBACK]"
+        log_prediction_to_db(request.review_text, cleaned, prediction, confidence)
+        return PredictionResponse(
+            review_text=request.review_text,
+            cleaned_text=cleaned,
+            predicted_sentiment=prediction,
+            confidence=confidence
+        )
+
     if model is None:
         raise HTTPException(
             status_code=503, 
             detail="Sentiment prediction model is currently unavailable."
         )
-    
-    if not request.review_text.strip():
-        raise HTTPException(status_code=400, detail="Review text cannot be empty.")
     
     try:
         # Preprocess text using the identical clean_text function (prevents training-serving skew)

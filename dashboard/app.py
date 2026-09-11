@@ -100,12 +100,12 @@ try:
     client = MlflowClient()
     
     # Get active @champion version
-    version_info_champ = client.get_model_version_by_alias("ecommerce-sentiment-model", "champion")
+    version_info_champ = client.get_model_version_by_alias("ev-sentiment-model", "champion")
     if version_info_champ:
         champion_version = version_info_champ.version
         
     # Get active @candidate version
-    version_info_cand = client.get_model_version_by_alias("ecommerce-sentiment-model", "candidate")
+    version_info_cand = client.get_model_version_by_alias("ev-sentiment-model", "candidate")
     if version_info_cand:
         candidate_version = version_info_cand.version
         has_candidate = True
@@ -173,9 +173,9 @@ if has_candidate and target_mode_val == "ml":
         with st.spinner("Promoting candidate..."):
             try:
                 # Set candidate to champion in MLflow Registry
-                client.set_registered_model_alias("ecommerce-sentiment-model", "champion", candidate_version)
+                client.set_registered_model_alias("ev-sentiment-model", "champion", candidate_version)
                 # Delete candidate alias
-                client.delete_registered_model_alias("ecommerce-sentiment-model", "candidate")
+                client.delete_registered_model_alias("ev-sentiment-model", "candidate")
                 # Reset canary split back to 0
                 with engine.begin() as conn:
                     set_setting(conn, "canary_percentage", "0")
@@ -226,7 +226,7 @@ if is_drifted_val:
         except Exception as e:
             st.sidebar.error(f"Failed to mute: {e}")
 
-st.title("🛍️ E-Commerce Review Sentiment & Drift Monitor")
+st.title("🚗 Vietnamese EV Review Sentiment & Drift Monitor")
 st.markdown("---")
 
 if error:

@@ -93,7 +93,7 @@ docker compose up -d --build
         docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
         ```
         *Or by clicking the blue toggle switch next to `daily_sentiment_analysis` inside the Airflow Web UI!*
-    *   **Experiment Registry (MLflow):** [http://localhost:5000](http://localhost:5000)
+    *   **Experiment Registry (MLflow):** [http://localhost:5000](http://localhost:5000) *(Tracks experiment `ev-sentiment-analysis` and registered model `ev-sentiment-model`)*
     *   **On-Demand Serving (FastAPI Docs):** [http://localhost:8000/docs](http://localhost:8000/docs)
 *   **How to Stop (Keep Data):** To cleanly stop all background containers while preserving your persistent database history, run:
     ```bash
@@ -267,7 +267,7 @@ If you need to execute individual pipeline steps manually, ensure `PYTHONPATH` i
 
 1.  **Run Cloud Ingestion & Backfill:** `python data/ingest_pipeline.py --backfill` *(Generates and scores 25 days of stable historical reviews offline using high-quality local templates to establish the baseline and pre-populate your database and dashboard charts)*.
 2.  **Submit Customer Reviews:** `python data/submit_review.py` *(Spawns the storefront CLI app to submit custom reviews into the database pending scoring)*.
-3.  **Train & Select Champion:** `python ml/train_model.py` *(Runs the automated model retraining, registers Version, and promotes to `@champion`)*.
+3.  **Train & Select Champion:** `python ml/train_model.py` *(Automated model training, logs to `ev-sentiment-analysis`, registers under `ev-sentiment-model`, and promotes to `@champion`)*.
 4.  **Test API Locally:** `python api/main.py` *(Launches FastAPI on `:8000`)*.
 5.  **Run Quality Assurances:** `python -m pytest ml/test_pipeline.py` *(Runs lint and structural syntax checks)*.
 

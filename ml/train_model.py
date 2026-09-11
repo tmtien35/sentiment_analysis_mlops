@@ -19,7 +19,7 @@ from mlflow.tracking import MlflowClient
 
 def main():
     mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
-    mlflow.set_experiment("ecommerce-sentiment-analysis")
+    mlflow.set_experiment("ev-sentiment-analysis")
     
     # Load Vietnamese EV reviews dataset
     ev_path = os.environ.get("TRAIN_DATA_PATH", "data/ev_reviews_vietnam_1529_cleaned.csv")
@@ -139,7 +139,7 @@ def main():
         champion_model_exists = False
         try:
             print("Loading current @champion model from registry for gatekeeping...")
-            champion_model = mlflow.sklearn.load_model("models:/ecommerce-sentiment-model@champion")
+            champion_model = mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")
             champ_preds = champion_model.predict(val_df['cleaned_text'])
             champion_f1 = f1_score(val_df['sentiment'], champ_preds, average='macro', zero_division=0)
             print(f" -> Current @champion Validation Macro-F1: {champion_f1:.4f}")
@@ -214,7 +214,7 @@ def main():
     # Register model programmatically
     print("\nRegistering model...")
     model_uri = f"runs:/{run_id}/model"
-    model_name_reg = "ecommerce-sentiment-model"
+    model_name_reg = "ev-sentiment-model"
     model_details = mlflow.register_model(model_uri=model_uri, name=model_name_reg)
     
     # Point 'candidate' alias to registered model
