@@ -93,6 +93,11 @@ df_preds, df_drift, df_logs, df_audit, error = load_data()
 champion_version = "None"
 candidate_version = "None"
 has_candidate = False
+champ_metrics = {}
+cand_metrics = {}
+champ_params = {}
+cand_params = {}
+
 try:
     import mlflow
     from mlflow.tracking import MlflowClient
@@ -100,24 +105,67 @@ try:
     client = MlflowClient()
     
     # Get active @champion version
-    version_info_champ = client.get_model_version_by_alias("ev-sentiment-model", "champion")
-    if version_info_champ:
-        champion_version = version_info_champ.version
-        
-    # Get active @candidate version
-    version_info_cand = client.get_model_version_by_alias("ev-sentiment-model", "candidate")
-    if version_info_cand:
-        candidate_version = version_info_cand.version
-        has_candidate = True
+    try:
+        version_info_champ = client.get_model_version_by_alias("ev-sentiment-model", "champion")
+        if version_info_champ:
+            champion_version = str(version_info_champ.version)
+            champ_run = client.get_run(version_info_champ.run_id)
+            champ_metrics = champ_run.data.metrics
+            champ_params = champ_run.data.params
+    except Exception:
+        pass
+
+    # Get active @candidate version (if any contender exists)
+    try:
+        version_info_cand = client.get_model_version_by_alias("ev-sentiment-model", "candidate")
+        if version_info_cand and str(version_info_cand.version) != champion_version:
+            candidate_version = str(version_info_cand.version)
+            has_candidate = True
+            cand_run = client.get_run(version_info_cand.run_id)
+            cand_metrics = cand_run.data.metrics
+            cand_params = cand_run.data.params
+    except Exception:
+        pass
 except Exception:
     pass
 
-st.sidebar.markdown("### 🏷️ Active Registry Versions")
+st.sidebar.markdown("### 🏷️ Active Registry Version")
 st.sidebar.markdown(f"🏆 **Champion Model:** `Version {champion_version}`")
+
 if has_candidate:
-    st.sidebar.markdown(f"Contender Model: `Version {candidate_version}`")
+    st.sidebar.markdown(f"🥊 **Contender Model:** `Version {candidate_version}` *(Chờ duyệt)*")
+    
+    with st.sidebar.expander("⚖️ So Sánh Champion vs Contender", expanded=True):
+        champ_f1 = champ_metrics.get("macro_f1", 0.0)
+        cand_f1 = cand_metrics.get("macro_f1", 0.0)
+        champ_size = champ_params.get("train_dataset_size", "N/A")
+        cand_size = cand_params.get("train_dataset_size", "N/A")
+        champ_acc = champ_metrics.get("accuracy", 0.0)
+        cand_acc = cand_metrics.get("accuracy", 0.0)
+        
+        st.markdown(f"""
+        | Chỉ số | 🏆 Champ (v{champion_version}) | 🥊 Contender (v{candidate_version}) |
+        | :--- | :---: | :---: |
+        | **Macro-F1** | `{champ_f1:.4f}` | `{cand_f1:.4f}` |
+        | **Accuracy** | `{champ_acc*100:.1f}%` | `{cand_acc*100:.1f}%` |
+        | **Train Size** | `{champ_size}` mẫu | `{cand_size}` mẫu |
+        """)
+        
+        st.caption("💡 *Contender có thể có F1 thấp hơn trên tập val cũ nhưng đã học thêm dữ liệu mới.*")
+        
+        if st.button("⚠️ Chấp nhận đánh đổi: Ép lên Champion 🏆", key="force_promote_btn", type="primary"):
+            try:
+                client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=candidate_version)
+                try:
+                    client.delete_registered_model_alias(name="ev-sentiment-model", alias="candidate")
+                except Exception:
+                    pass
+                st.success(f"Đã ép thăng hạng Version {candidate_version} lên @champion thành công!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Lỗi thăng hạng: {e}")
 else:
-    st.sidebar.markdown(f"Contender Model: `None`")
+    st.sidebar.markdown("🥊 **Contender Model:** *None (Hệ thống tối ưu)*")
 
 st.sidebar.markdown("---")
 
@@ -149,42 +197,7 @@ if target_mode_val != current_mode:
 if target_mode_val == "fallback":
     st.sidebar.warning("🛡️ Safe-Mode Active: ML Model Bypassed!")
 
-# 2. Canary Traffic Split & Manual Promotion (Only visible if `@candidate` contender exists!)
-if has_candidate and target_mode_val == "ml":
-    st.sidebar.markdown("---")
-    st.sidebar.markdown(f"### 🐤 Canary Deploy (Contender: v{candidate_version})")
-    try:
-        with engine.connect() as conn:
-            current_canary = int(get_setting(conn, "canary_percentage", "0"))
-    except Exception:
-        current_canary = 0
-        
-    new_canary = st.sidebar.slider("Canary Traffic Split:", 0, 100, current_canary, step=10, format="%d%%")
-    if new_canary != current_canary:
-        try:
-            with engine.begin() as conn:
-                set_setting(conn, "canary_percentage", str(new_canary))
-            st.sidebar.success(f"Canary split set to: {new_canary}%")
-            st.rerun()
-        except Exception as e:
-            st.sidebar.error(f"Failed to set split: {e}")
-            
-    if st.sidebar.button("Promote Candidate to Champion 🏆"):
-        with st.spinner("Promoting candidate..."):
-            try:
-                # Set candidate to champion in MLflow Registry
-                client.set_registered_model_alias("ev-sentiment-model", "champion", candidate_version)
-                # Delete candidate alias
-                client.delete_registered_model_alias("ev-sentiment-model", "candidate")
-                # Reset canary split back to 0
-                with engine.begin() as conn:
-                    set_setting(conn, "canary_percentage", "0")
-                st.sidebar.success(f"🏆 Version {candidate_version} promoted to @champion!")
-                st.rerun()
-            except Exception as e:
-                st.sidebar.error(f"Failed to promote: {e}")
-
-# 3. Trigger Retraining
+# 2. Trigger Retraining
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🧠 Continuous Training")
 if st.sidebar.button("Trigger Retrain Manual"):
@@ -413,30 +426,51 @@ else:
     failed_reports = glob.glob(os.path.join("data", "alerts", "retrain_failed_*.html"))
     has_gatekeeper_failure = len(failed_reports) > 0
     
-    # Check if there is an active unmuted data drift alert
+    # Check drift status across batches
     is_drift_active = False
     drift_date_val = None
+    drifted_dates = []
     if df_drift is not None and len(df_drift) > 0:
         latest_drift_val = df_drift.iloc[-1]
         is_drift_active = latest_drift_val['drift_detected'] == 1
         drift_date_val = latest_drift_val['batch_date']
+        drifted_dates = df_drift[df_drift['drift_detected'] >= 1]['batch_date'].tolist()
         
-    is_unlocked = has_gatekeeper_failure or is_drift_active
+    # Check if any historical drifted date still has unverified reviews pending audit
+    pending_drift_dates = []
+    if df_audit is not None and len(df_audit) > 0 and len(drifted_dates) > 0:
+        unverified_mask = (
+            df_audit['verified_sentiment'].isna() | 
+            (df_audit['verified_sentiment'] == '') | 
+            (df_audit['verified_sentiment'].astype(str).str.lower() == 'none') |
+            (df_audit['verified_sentiment'].astype(str).str.lower() == 'nan') |
+            (df_audit['verified_sentiment'].astype(str).str.lower() == 'null')
+        )
+        pending_drift_dates = sorted(list(df_audit[unverified_mask & df_audit['review_date'].isin(drifted_dates)]['review_date'].dropna().unique()), reverse=True)
+    has_pending_drift_audit = len(pending_drift_dates) > 0
+
+    col_title_space, col_override = st.columns([3, 1])
+    with col_override:
+        manual_unlock = st.toggle("🔓 Mở khóa thủ công", value=False, help="Mở khóa bảng thẩm định để xem và gán nhãn cho bất kỳ mẻ dữ liệu nào trong lịch sử kể cả khi hệ thống đang Stable.")
+
+    is_unlocked = has_gatekeeper_failure or is_drift_active or has_pending_drift_audit or manual_unlock
     
     if not is_unlocked:
-        st.success("🔒 **Audit Panel Locked (Healthy)**: The current production champion model is running smoothly, and no active data drift alert or gatekeeper failure is present. Human intervention is not required at this time.")
+        st.success("🔒 **Audit Panel Locked (Healthy)**: The current production champion model is running smoothly, and no unverified drift batches remain. Human intervention is not required at this time.")
+        st.caption("💡 *Mẹo: Nếu muốn chủ động kiểm tra hoặc gán nhãn cho các mẻ dữ liệu trong quá khứ, hãy bật công tắc '🔓 Mở khóa thủ công' ở góc phải trên.*")
     else:
-        if has_gatekeeper_failure:
+        if manual_unlock:
+            st.info("🔓 **Audit Panel Unlocked (Chế độ thủ công)**: Bạn đang kích hoạt chế độ mở khóa thủ công. Bạn có thể tự do lọc và thẩm định bất kỳ mẻ dữ liệu nào trong lịch sử.")
+        elif has_gatekeeper_failure:
             st.warning("🔓 **Audit Panel Unlocked (Gatekeeping Failure Detected)**: The last automated model retraining failed the gatekeeper because the candidate's validation score did not beat the champion. Human auditing is required for reviews in the drifted batch!")
         elif is_drift_active:
             st.warning(f"🔓 **Audit Panel Unlocked (Active Data Drift Alert)**: A data drift alert (unmuted) was detected on batch {drift_date_val}! Human operators should audit and label reviews in this drifted batch to ensure retraining is highly accurate.")
+        elif has_pending_drift_audit:
+            st.warning(f"🔓 **Audit Panel Unlocked (Dữ liệu Drift lịch sử tồn đọng)**: Phát hiện đợt drift ngày **{', '.join(pending_drift_dates)}** vẫn còn đánh giá chưa được thẩm định! Vui lòng hoàn tất gắn nhãn để cung cấp nhãn vàng cho các đợt Retrain tiếp theo.")
             
         st.markdown("Double-click cells in the **Human Verified Label** column to assign correct ground-truth sentiments in bulk, then click the **Save All Bulk Edits** button!")
         
         if df_audit is not None and len(df_audit) > 0:
-            drifted_dates = []
-            if df_drift is not None and len(df_drift) > 0:
-                drifted_dates = df_drift[df_drift['drift_detected'] >= 1]['batch_date'].tolist()
 
             # Human-in-the-Loop Agreement & Calibration Metrics
             audited_mask = (

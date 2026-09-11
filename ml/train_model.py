@@ -147,27 +147,27 @@ def main():
         except Exception as e:
             print(f" -> No active @champion model found in registry: {e}")
 
-        if champion_model_exists and val_f1 < champion_f1:
-            print(f"\n❌ GATEKEEPING FAILED: New Model F1 ({val_f1:.4f}) < Champion F1 ({champion_f1:.4f}). Aborting registration!")
+        passed_gatekeeper = (not champion_model_exists) or (val_f1 >= champion_f1)
+        if not passed_gatekeeper:
+            print(f"\n❌ GATEKEEPING BLOCKED AUTO-PROMOTION: New Model F1 ({val_f1:.4f}) < Champion F1 ({champion_f1:.4f}).")
+            print(" -> Registering model as '@candidate' (Contender) for Admin review & scorecard comparison on Streamlit.")
             # Save incident report
-            html = f"""<div style='font-family:Arial;max-width:450px;border:1px solid #ddd;padding:15px;border-radius:8px;'><h2 style='color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;'>❌ GATEKEEPING RETRAIN FAILED</h2><p>Model retraining aborted because the new model failed the automated validation gate.</p><p><b>Champion Macro-F1:</b> <span style='color:#2ecc71;font-weight:bold;'>{champion_f1:.4f}</span></p><p><b>Candidate Macro-F1:</b> <span style='color:#e74c3c;font-weight:bold;'>{val_f1:.4f}</span></p><p style='background:#fdf2f2;padding:10px;color:#9b1c1c;'><strong>Serving continues running the stable @champion model safely.</strong></p></div>"""
+            html = f"""<div style='font-family:Arial;max-width:500px;border:1px solid #ddd;padding:15px;border-radius:8px;'><h2 style='color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;'>❌ GATEKEEPING BLOCKED AUTO-PROMOTION</h2><p>New model did not outperform Champion on fixed validation set.</p><p><b>Champion Macro-F1:</b> <span style='color:#2ecc71;font-weight:bold;'>{champion_f1:.4f}</span></p><p><b>Candidate Macro-F1:</b> <span style='color:#e74c3c;font-weight:bold;'>{val_f1:.4f}</span></p><p><b>Training Dataset Size:</b> {len(train_df)} samples</p><p style='background:#fdf2f2;padding:10px;color:#9b1c1c;'><strong>Serving continues safely on @champion. Candidate model is registered as @candidate for manual Admin review on Streamlit.</strong></p></div>"""
             path = os.path.join("data", "alerts")
             os.makedirs(path, exist_ok=True)
             fpath = os.path.join(path, f"retrain_failed_{datetime.now().strftime('%Y_%m_%d_%H%M')}.html")
             with open(fpath, "w", encoding="utf-8") as f: f.write(html)
             print(f"📧 [EMAIL ALERT] Saved HTML incident report to: {fpath}")
-            return
-
-        print(f"\n✅ GATEKEEPING PASSED: New Model F1 ({val_f1:.4f}) >= Champion F1 ({champion_f1:.4f}). Proceeding with registration...")
-        
-        # Clear gatekeeping failure reports since we have successfully passed the gatekeeper
-        import glob
-        try:
-            for fpath in glob.glob(os.path.join("data", "alerts", "retrain_failed_*.html")):
-                os.remove(fpath)
-                print(f"🗑️  Cleared old gatekeeper failure report: {fpath}")
-        except Exception as e:
-            print(f" -> Failed to clear gatekeeper failure reports: {e}")
+        else:
+            print(f"\n✅ GATEKEEPING PASSED: New Model F1 ({val_f1:.4f}) >= Champion F1 ({champion_f1:.4f}). Proceeding with registration...")
+            # Clear gatekeeping failure reports since we have successfully passed the gatekeeper
+            import glob
+            try:
+                for old_rep in glob.glob(os.path.join("data", "alerts", "retrain_failed_*.html")):
+                    os.remove(old_rep)
+                    print(f"🗑️  Cleared old gatekeeper failure report: {old_rep}")
+            except Exception as e:
+                print(f" -> Failed to clear gatekeeper failure reports: {e}")
         
         # Log params & metrics
         mlflow.log_param("clf__C", 2.0)
@@ -217,18 +217,21 @@ def main():
     model_name_reg = "ev-sentiment-model"
     model_details = mlflow.register_model(model_uri=model_uri, name=model_name_reg)
     
-    # Point 'candidate' alias to registered model
-    print(f"Promoting version {model_details.version} to '@candidate'...")
     client = MlflowClient()
-    client.set_registered_model_alias(name=model_name_reg, alias="candidate", version=model_details.version)
-    
-    # Auto-promote to champion if requested or if no champion exists
-    auto_promote = os.environ.get("AUTO_PROMOTE_CHAMPION", "true").lower() in ("true", "1")
-    if auto_promote or not champion_model_exists:
+    if passed_gatekeeper:
+        # Promote registered model directly to champion
+        print(f"Promoting version {model_details.version} to '@champion'...")
         client.set_registered_model_alias(name=model_name_reg, alias="champion", version=model_details.version)
         print(f"🏆 Successfully promoted version {model_details.version} to '@champion'!")
+        try:
+            client.delete_registered_model_alias(name=model_name_reg, alias="candidate")
+        except Exception:
+            pass
     else:
-        print("Model registered under @candidate alias for manual promotion!")
+        # Point 'candidate' alias to registered contender model for admin review
+        print(f"Assigning version {model_details.version} to '@candidate' (Contender)...")
+        client.set_registered_model_alias(name=model_name_reg, alias="candidate", version=model_details.version)
+        print(f"🥊 Version {model_details.version} assigned to '@candidate'. Serving continues on Champion.")
 
 if __name__ == "__main__":
     main()

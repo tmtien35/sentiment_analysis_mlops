@@ -146,7 +146,7 @@ Show the judges how you can actively manage production alerts and bypass model p
 ### **2. Test the "Active Learning & Human-in-the-Loop Audit" (Gán nhãn sửa lỗi trực tiếp trên giao diện):**
 Before triggering manual retraining, let's play the role of an Admin auditing the database to correct model misclassifications directly from the web browser:
 1. Scroll down to the **🧠 Active Learning & Human-in-the-Loop Audit** section at the bottom of the page.
-   * *Notice:* The panel is highly smart and secure. It remains **`🔒 Locked (Healthy)`** under normal conditions to prevent unauthorized edits. It automatically **`🔓 Unlocks`** when a Data Drift alert is active or when retraining fails the validation gate.
+   * *Notice:* The panel is highly smart and secure. It remains **`🔒 Locked (Healthy)`** under normal conditions when all historical drift reviews have been audited, but automatically **`🔓 Unlocks`** whenever there is an active drift alert, gatekeeper failure, or unverified reviews in any historical drift batch. Operators can also toggle **`🔓 Mở khóa thủ công`** anytime to audit any batch in history.
 2. Here, you'll see a list of scored reviews sorted by **lowest confidence** (Uncertainty Sampling). Notice that by default, healthy reviews are filtered out—only candidates from **Drifted Dates** are shown!
 3. You can toggle filters using the checkboxes:
    * `Show only reviews from drifted dates` (checked by default).
