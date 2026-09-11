@@ -1,11 +1,14 @@
 import os
+import sys
+from datetime import datetime
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.pipeline import Pipeline
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, ConfusionMatrixDisplay
 
 # Preprocessing & MLflow
@@ -18,10 +21,20 @@ def main():
     mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
     mlflow.set_experiment("ecommerce-sentiment-analysis")
     
-    print("Loading datasets...")
-    train_df = pd.read_csv('data/train_v1.csv')
-    val_df = pd.read_csv('data/val_v1.csv')
-    test_df = pd.read_csv('data/test_v1.csv')
+    # Load Vietnamese EV reviews dataset
+    ev_path = os.environ.get("TRAIN_DATA_PATH", "data/ev_reviews_vietnam_1529_cleaned.csv")
+    if not os.path.exists(ev_path):
+        raise FileNotFoundError(f"EV reviews dataset not found at '{ev_path}'!")
+        
+    print(f"Loading Vietnamese EV reviews dataset from {ev_path}...")
+    full_df = pd.read_csv(ev_path)
+    if 'text' in full_df.columns and 'review_text' not in full_df.columns:
+        full_df['review_text'] = full_df['text']
+        
+    from sklearn.model_selection import train_test_split
+    train_df, temp_df = train_test_split(full_df, test_size=0.20, random_state=42, stratify=full_df['sentiment'])
+    val_df, test_df = train_test_split(temp_df, test_size=0.50, random_state=42, stratify=temp_df['sentiment'])
+    print(f"EV Split: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")
     
     hashes = ""
     if os.path.exists('data/dataset_hashes.txt'):
@@ -96,16 +109,16 @@ def main():
     val_df['cleaned_text'] = val_df['review_text'].apply(clean_text)
     test_df['cleaned_text'] = test_df['review_text'].apply(clean_text)
     
-    print("\n--- Training Champion Model (Multinomial Naive Bayes) ---")
-    model_name = "Multinomial Naive Bayes"
+    print("\n--- Training Champion Model (Logistic Regression) ---")
+    model_name = "Logistic Regression"
     
     with mlflow.start_run(run_name=model_name) as run:
         run_id = run.info.run_id
         
-        # Define and train the locked, high-performing Naive Bayes pipeline
+        # Define and train the locked, high-performing Logistic Regression pipeline
         pipeline = Pipeline([
-            ('tfidf', TfidfVectorizer(max_features=5000, ngram_range=(1, 2))),
-            ('clf', MultinomialNB(alpha=1.0))
+            ('tfidf', TfidfVectorizer(max_features=5000, ngram_range=(1, 2), min_df=2)),
+            ('clf', LogisticRegression(C=2.0, max_iter=1000, random_state=42))
         ])
         pipeline.fit(train_df['cleaned_text'], train_df['sentiment'])
         
@@ -121,16 +134,18 @@ def main():
 
         # --- AUTOMATED MODEL GATEKEEPING ---
         champion_f1 = 0.0
+        champion_model_exists = False
         try:
             print("Loading current @champion model from registry for gatekeeping...")
             champion_model = mlflow.sklearn.load_model("models:/ecommerce-sentiment-model@champion")
             champ_preds = champion_model.predict(val_df['cleaned_text'])
             champion_f1 = f1_score(val_df['sentiment'], champ_preds, average='macro', zero_division=0)
             print(f" -> Current @champion Validation Macro-F1: {champion_f1:.4f}")
+            champion_model_exists = True
         except Exception as e:
             print(f" -> No active @champion model found in registry: {e}")
 
-        if val_f1 < champion_f1:
+        if champion_model_exists and val_f1 < champion_f1:
             print(f"\n❌ GATEKEEPING FAILED: New Model F1 ({val_f1:.4f}) < Champion F1 ({champion_f1:.4f}). Aborting registration!")
             # Save incident report
             html = f"""<div style='font-family:Arial;max-width:450px;border:1px solid #ddd;padding:15px;border-radius:8px;'><h2 style='color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;'>❌ GATEKEEPING RETRAIN FAILED</h2><p>Model retraining aborted because the new model failed the automated validation gate.</p><p><b>Champion Macro-F1:</b> <span style='color:#2ecc71;font-weight:bold;'>{champion_f1:.4f}</span></p><p><b>Candidate Macro-F1:</b> <span style='color:#e74c3c;font-weight:bold;'>{val_f1:.4f}</span></p><p style='background:#fdf2f2;padding:10px;color:#9b1c1c;'><strong>Serving continues running the stable @champion model safely.</strong></p></div>"""
@@ -153,7 +168,9 @@ def main():
             print(f" -> Failed to clear gatekeeper failure reports: {e}")
         
         # Log params & metrics
-        mlflow.log_param("clf__alpha", 1.0)
+        mlflow.log_param("clf__C", 2.0)
+        mlflow.log_param("clf__solver", "lbfgs")
+        mlflow.log_param("model_family", "LogisticRegression")
         mlflow.log_param("dataset_hashes", hashes)
         mlflow.log_param("train_dataset_size", len(train_df))
         mlflow.log_metric("accuracy", acc)
@@ -172,11 +189,12 @@ def main():
         disp.plot(ax=ax, cmap='Blues', values_format='d')
         plt.title(f"{model_name} Val CM")
         
-        fig_path = "ml/multinomial_naive_bayes_cm.png"
+        fig_path = "ml/logistic_regression_cm.png"
         plt.savefig(fig_path, bbox_inches='tight')
         plt.close()
         mlflow.log_artifact(fig_path)
-        os.remove(fig_path)
+        if os.path.exists(fig_path):
+            os.remove(fig_path)
         
     # Unbiased single evaluation on test partition
     print("\nEvaluating candidate on unseen test set...")
@@ -201,7 +219,14 @@ def main():
     print(f"Promoting version {model_details.version} to '@candidate'...")
     client = MlflowClient()
     client.set_registered_model_alias(name=model_name_reg, alias="candidate", version=model_details.version)
-    print("Successfully registered candidate model under @candidate alias for manual promotion!")
+    
+    # Auto-promote to champion if requested or if no champion exists
+    auto_promote = os.environ.get("AUTO_PROMOTE_CHAMPION", "true").lower() in ("true", "1")
+    if auto_promote or not champion_model_exists:
+        client.set_registered_model_alias(name=model_name_reg, alias="champion", version=model_details.version)
+        print(f"🏆 Successfully promoted version {model_details.version} to '@champion'!")
+    else:
+        print("Model registered under @candidate alias for manual promotion!")
 
 if __name__ == "__main__":
     main()

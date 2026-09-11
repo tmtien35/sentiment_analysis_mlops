@@ -8,31 +8,31 @@ from airflow_home.dags.batch_scoring import run_batch_scoring
 
 STABLE_TEMPLATES = {
     "positive": [
-        "Absolutely amazing! This exceeded my expectations.",
-        "Very fast shipping and high quality product.",
-        "Perfect fit, comfortable and looks great.",
-        "Wonderful customer service and brilliant experience.",
-        "Works perfectly! Will definitely buy again.",
-        "So happy with this purchase, high recommendation.",
-        "Best purchase of the year, absolutely stellar."
+        "Xe chạy cực kỳ êm ái, tăng tốc nhanh và cách âm vượt ngoài mong đợi.",
+        "Trạm sạc phủ sóng rộng khắp, sạc siêu nhanh rất tiện lợi khi đi xa.",
+        "Nội thất hiện đại, màn hình trung tâm mượt mà, tính năng ADAS hoạt động chuẩn xác.",
+        "Dịch vụ chăm sóc khách hàng và cứu hộ 24/7 rất chu đáo và tận tình.",
+        "Tiết kiệm chi phí nhiên liệu rõ rệt so với xe xăng, rất hài lòng với quyết định mua xe.",
+        "Quãng đường di chuyển thực tế đúng như công bố, pin sạc rất bền bỉ.",
+        "Trải nghiệm lái tuyệt vời, khung gầm đầm chắc và an toàn tối đa."
     ],
     "neutral": [
-        "It is okay, nothing special but works fine.",
-        "Satisfactory purchase, average quality.",
-        "Okay product, shipping took slightly longer.",
-        "Decent item for the price, no major issues.",
-        "Average fit, not too bad but could be better.",
-        "Works as expected, pretty standard item.",
-        "Acceptable experience overall."
+        "Xe đi tạm ổn trong tầm giá, phần mềm đôi khi cần khởi động lại.",
+        "Thời gian sạc ở mức chấp nhận được, mong có thêm trụ sạc nhanh ở ngoại thành.",
+        "Nội thất ở mức trung bình, chất liệu nhựa bình thường nhưng chấp nhận được.",
+        "Quãng đường đi thực tế phụ thuộc nhiều vào điều hòa và tốc độ chạy.",
+        "Treo hơi cứng khi qua gờ giảm tốc, còn lại vận hành cơ bản ổn định.",
+        "Hệ thống thông tin giải trí phản hồi bình thường, đủ dùng cho nhu cầu hàng ngày.",
+        "Dịch vụ bảo dưỡng mức độ tạm được, thời gian chờ lấy xe hơi lâu."
     ],
     "negative": [
-        "Terrible quality, broke on the first day of use!",
-        "Very disappointed, absolute waste of money.",
-        "Poor customer service and extremely slow shipping.",
-        "Avoid this product! Crashing and very bad experience.",
-        "Worst item I have ever bought, completely defective.",
-        "Does not work at all, returning it immediately.",
-        "Horrible fit, material feels cheap and bad."
+        "Phần mềm báo lỗi ảo liên tục, màn hình thỉnh thoảng bị đơ rất khó chịu.",
+        "Trụ sạc công cộng thường xuyên bị lỗi kết nối hoặc xe xăng chiếm chỗ.",
+        "Chất lượng hoàn thiện kém, tiếng ồn lốp và gió vọng vào khoang lái nhiều.",
+        "Pin sụt nhanh hơn nhiều so với thông số công bố khi đi đường dài.",
+        "Dịch vụ hậu mãi và bảo hành quá chậm, phụ tùng thay thế phải chờ đợi cả tháng.",
+        "Hệ thống điều hòa làm mát chậm trong thời tiết nắng nóng gay gắt.",
+        "Trải nghiệm dịch vụ rất thất vọng, nhân viên kỹ thuật xử lý chưa chuyên nghiệp."
     ]
 }
 
@@ -62,7 +62,7 @@ def write_to_store_reviews(reviews_list):
 
 def run_backfill():
     print("================================================================")
-    print("🛍️  ETL PIPELINE: Executing 25-Day Historical Backfill (Local)")
+    print("🚗  ETL PIPELINE: Executing 25-Day Historical EV Backfill (Local)")
     print("================================================================")
     engine = get_db_engine()
     try:
@@ -81,7 +81,7 @@ def run_backfill():
     start_date = yesterday - timedelta(days=24)
     
     print(f"Generating balanced local real reviews ending yesterday: {yesterday.strftime('%Y-%m-%d')}...")
-    categories = ["electronics", "kitchen", "apparel", "sports", "other"]
+    categories = ["pin_sac", "van_hanh", "noi_that", "dich_vu", "khac"]
     
     for day in range(25):
         cur_date = start_date + timedelta(days=day)

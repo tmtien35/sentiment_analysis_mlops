@@ -45,12 +45,12 @@ def submit_batch_reviews(reviews_list):
 
 def main():
     print("==================================================================")
-    print("🛍️  E-Commerce Storefront: Live Customer Review Submitter Loop")
+    print("🚗  Vietnamese EV Reviews: Live Customer Feedback Submitter")
     print("==================================================================")
     
-    parser = argparse.ArgumentParser(description="Submit live reviews into the Storefront database.")
-    parser.add_argument("--text", type=str, help="Content of the customer product review (CLI argument mode)")
-    parser.add_argument("--category", type=str, choices=["apparel", "kitchen", "electronics", "sports", "other"], default="other")
+    parser = argparse.ArgumentParser(description="Submit live EV reviews into the database.")
+    parser.add_argument("--text", type=str, help="Content of the customer EV review (CLI argument mode)")
+    parser.add_argument("--category", type=str, choices=["pin_sac", "van_hanh", "noi_that", "dich_vu", "khac"], default="khac")
     
     args = parser.parse_args()
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -65,25 +65,25 @@ def main():
             "review_text": args.text
         }])
         if inserted:
-            print(f"✅ Submitted single review: {review_id} for {today_str} successfully!")
+            print(f"✅ Submitted single EV review: {review_id} for {today_str} successfully!")
         return
 
-    # Interactive Continuous Loop Mode (Completely simplified - No date prompt!)
-    print("\nEnter Reviews Continuously (Leave review empty or type 'exit' to submit)")
+    # Interactive Continuous Loop Mode
+    print("\nNhập đánh giá xe điện liên tục (để trống hoặc gõ 'exit' để gửi):")
     print("-" * 66)
     
-    categories = ["electronics", "kitchen", "apparel", "sports", "other"]
+    categories = ["pin_sac", "van_hanh", "noi_that", "dich_vu", "khac"]
     pending_list = []
     idx = 1
     
     try:
         while True:
-            print(f"\nReview #{idx} Text:")
+            print(f"\nĐánh giá xe điện #{idx}:")
             text = input("> ").strip()
             if not text.strip() or "exit" in text.lower():
                 break
             
-            # Automatically assign a distributed category behind the scenes!
+            # Automatically assign a distributed category
             category = categories[(idx - 1) % len(categories)]
             
             review_id = f"user_{str(uuid.uuid4())[:8]}"
@@ -96,21 +96,21 @@ def main():
             idx += 1
             
         if pending_list:
-            print("\nSubmitting to database...")
+            print("\nĐang lưu vào database...")
             inserted = submit_batch_reviews(pending_list)
             print("\n==================================================================")
-            print(f"✅ SUCCESS: {inserted} E-Commerce Review(s) Submitted!")
+            print(f"✅ THÀNH CÔNG: Đã gửi {inserted} đánh giá xe điện!")
             print("==================================================================")
             for r in pending_list:
-                print(f" 📦 [{r['category'].upper()}] \"{r['review_text']}\"")
+                print(f" 🚗 [{r['category'].upper()}] \"{r['review_text']}\"")
             print("==================================================================")
-            print("👉 Run your ingestion pipeline to analyze and score them:")
+            print("👉 Chạy pipeline batch scoring để chấm điểm:")
             print("   python data/ingest_pipeline.py --ingest")
         else:
-            print("\nNo reviews entered. Exited cleanly.")
+            print("\nKhông có đánh giá nào được nhập. Đã thoát an toàn.")
             
     except KeyboardInterrupt:
-        print("\n\nSubmission cancelled.")
+        print("\n\nĐã hủy nhập.")
 
 if __name__ == "__main__":
     main()

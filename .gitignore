@@ -46,3 +46,7 @@ data/results.db
 data/cloud_production.csv
 data/alerts/
 data/incoming/
+
+# 🚗 Local Documents, Presentations & EV Raw Backups (Kept local, untracked by Git)
+docs/
+

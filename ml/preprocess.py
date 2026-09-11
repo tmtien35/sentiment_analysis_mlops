@@ -18,8 +18,8 @@ def clean_text(text):
     # Strip HTML tags
     text = re.sub(r'<[^>]*>', ' ', text)
     
-    # Keep only letters, numbers, spaces, and basic punctuation
-    text = re.sub(r'[^a-zA-Z0-9\s\!\?\,\.\']', '', text)
+    # Keep unicode letters (including Vietnamese accents), numbers, spaces, and basic punctuation
+    text = re.sub(r'[^\w\s\!\?\,\.\']', '', text, flags=re.UNICODE)
     
     # Clean up multiple spaces
     text = re.sub(r'\s+', ' ', text).strip()

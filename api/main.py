@@ -42,8 +42,14 @@ def get_setting(conn, key, default):
 
 def fallback_rule_classifier(text: str) -> dict:
     txt_lower = text.lower()
-    pos_words = ["love", "happy", "great", "excellent", "good", "perfect", "satisfied", "amazing"]
-    neg_words = ["delaygator", "payment-loop", "checkout-freeze", "poor", "terrible", "horrible", "mal", "pésima", "broke", "crash", "stuck"]
+    pos_words = [
+        "love", "happy", "great", "excellent", "good", "perfect", "satisfied", "amazing",
+        "tuyệt vời", "rất tốt", "êm ái", "tiết kiệm", "hài lòng", "ưng ý", "quá ngon", "đáng tiền", "mượt mà", "ổn định", "hời"
+    ]
+    neg_words = [
+        "delaygator", "payment-loop", "checkout-freeze", "poor", "terrible", "horrible", "mal", "pésima", "broke", "crash", "stuck",
+        "lỗi", "kém", "hỏng", "tệ", "thất vọng", "chán", "ọp ẹp", "chậm", "chờ lâu", "vất vả", "khó chịu"
+    ]
     pos_count = sum(1 for w in pos_words if w in txt_lower)
     neg_count = sum(1 for w in neg_words if w in txt_lower)
     if neg_count > pos_count:
@@ -116,8 +122,8 @@ async def lifespan(app: FastAPI):
     print("Shutting down API server...")
 
 app = FastAPI(
-    title="E-Commerce Sentiment Serving API",
-    description="Real-time sentiment scoring of product reviews served from MLflow Registry",
+    title="Vietnamese EV Sentiment Serving API",
+    description="Real-time sentiment scoring of Vietnamese EV customer reviews served from MLflow Registry",
     version="1.0.0",
     lifespan=lifespan
 )

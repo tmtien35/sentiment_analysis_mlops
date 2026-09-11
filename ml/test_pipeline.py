@@ -11,6 +11,11 @@ def test_clean_text():
     
     assert clean_text(raw_text) == expected
     
+    # Test handling of Vietnamese Unicode accented text
+    vn_text = "Xe chạy rất êm, tăng tốc mượt mà và tiết kiệm điện!"
+    expected_vn = "xe chạy rất êm, tăng tốc mượt mà và tiết kiệm điện!"
+    assert clean_text(vn_text) == expected_vn
+    
     # Test handling of empty strings or non-string inputs
     assert clean_text("") == ""
     assert clean_text(None) == ""
