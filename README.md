@@ -118,8 +118,9 @@ docker compose up -d --build
     # 3. Bootstrap and train the initial model (Run once on fresh database)
     docker compose run --rm fastapi python ml/train_model.py
     
-    # 4. Seed the 25-day historical backfill into Postgres
-    docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
+    # 4. Seed the 25-day historical backfill into Postgres (or SQLite)
+    # Uses --reset to cleanly truncate tables and seed 500 balanced, non-repetitive real EV reviews
+    docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset
     
     # 5. Bring the serving servers back online
     docker compose up -d --build

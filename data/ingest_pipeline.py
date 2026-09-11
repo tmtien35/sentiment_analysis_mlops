@@ -1,39 +1,11 @@
-﻿import os, sys, argparse
+import os, sys, argparse
 from datetime import datetime, timedelta
 import pandas as pd
 from sqlalchemy import create_engine, text
 
 sys.path.append(os.getcwd())
 from airflow_home.dags.batch_scoring import run_batch_scoring
-
-STABLE_TEMPLATES = {
-    "positive": [
-        "Xe chạy rất êm, tăng tốc tốt và cảm giác lái rất ổn.",
-        "Dịch vụ tại đại lý nhiệt tình, tư vấn khá rõ ràng và chu đáo.",
-        "Thiết kế đẹp, nội thất hiện đại và nhiều công nghệ thông minh.",
-        "Mình rất hài lòng với khả năng vận hành của xe trong nhu cầu hàng ngày.",
-        "Chi phí sử dụng hàng ngày khá tiết kiệm so với xe xăng, rất đáng mua.",
-        "Hệ thống hỗ trợ lái hoạt động tốt và rất dễ sử dụng.",
-        "Quãng đường di chuyển thực tế rất tốt, sạc nhanh tiện lợi."
-    ],
-    "neutral": [
-        "Mình mới sử dụng vài tuần nên chưa có kết luận cuối cùng.",
-        "Xe phù hợp đi phố, còn đường dài thì mình chưa có nhiều trải nghiệm.",
-        "Mình thấy xe có ưu và nhược điểm riêng, chưa nghiêng hẳn về bên nào.",
-        "Dịch vụ đại lý khá bình thường, chưa có điểm gì đặc biệt.",
-        "Tính năng khá nhiều nhưng mình chưa dùng hết.",
-        "Khả năng vận hành ở mức ổn, chưa thấy vấn đề nghiêm trọng."
-    ],
-    "negative": [
-        "Trải nghiệm thực tế chưa tốt như những bài quảng cáo mình xem.",
-        "Phần mềm đôi lúc bị chậm và có vài lỗi nhỏ rất khó chịu.",
-        "Chất lượng hoàn thiện kém, tiếng ồn lốp và gió vọng vào khoang lái.",
-        "Thời gian sạc vẫn hơi lâu nếu cần đi đường dài.",
-        "Tầm hoạt động thực tế thấp hơn kỳ vọng khi chạy tốc độ cao.",
-        "Dịch vụ sau bán hàng chưa đồng đều, phụ tùng chờ đợi lâu.",
-        "Trải nghiệm dịch vụ rất thất vọng, nhân viên kỹ thuật xử lý chưa tốt."
-    ]
-}
+from data.crawl_feed import classify_aspect_category
 
 def get_db_engine():
     db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
@@ -59,58 +31,90 @@ def write_to_store_reviews(reviews_list):
                 VALUES (:review_id, :review_date, :category, :review_text, 0, NULL)
             """), r)
 
-def run_backfill():
+def run_backfill(reset: bool = False):
     print("================================================================")
     print("🚗  ETL PIPELINE: Executing 25-Day Historical EV Backfill (Local)")
     print("================================================================")
     engine = get_db_engine()
-    try:
-        with engine.connect() as conn:
-            res = conn.execute(text("SELECT COUNT(*) FROM store_reviews"))
-            cnt = res.fetchone()[0]
-            if cnt > 0:
-                print(f"ℹ️  INFO: Database already contains {cnt} persistent reviews in 'store_reviews'.")
-                print(" -> Skipping historical backfill to preserve persistent production history.")
-                print(" -> If you want to reset and run backfill from scratch, please delete 'data/results.db' manually or truncate tables.")
-                return
-    except Exception:
-        pass # Table doesn't exist yet, proceed with setup
+    
+    if reset:
+        print("🧹  Reset flag detected: Clearing store_reviews, predictions, drift_metrics...")
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS store_reviews"))
+            conn.execute(text("DROP TABLE IF EXISTS predictions"))
+            conn.execute(text("DROP TABLE IF EXISTS drift_metrics"))
+        alerts_dir = os.path.join("data", "alerts")
+        if os.path.exists(alerts_dir):
+            for f in os.listdir(alerts_dir):
+                if f.endswith(".html"):
+                    try:
+                        os.remove(os.path.join(alerts_dir, f))
+                    except Exception:
+                        pass
+        print("✅  Reset completed.")
+    else:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT COUNT(*) FROM store_reviews"))
+                cnt = res.fetchone()[0]
+                if cnt > 0:
+                    print(f"ℹ️  INFO: Database already contains {cnt} persistent reviews in 'store_reviews'.")
+                    print(" -> Skipping historical backfill to preserve persistent production history.")
+                    print(" -> To reset and rerun backfill: python data/ingest_pipeline.py --backfill --reset")
+                    return
+        except Exception:
+            pass # Table doesn't exist yet, proceed with setup
         
+    pool_path = os.environ.get("FEED_POOL_PATH", "data/ev_feed_simulation_pool.csv")
+    if not os.path.exists(pool_path):
+        print(f"❌ ERROR: Simulation pool not found at '{pool_path}'!")
+        return
+        
+    df_pool = pd.read_csv(pool_path)
+    pos_df = df_pool[df_pool["sentiment"] == "positive"].reset_index(drop=True)
+    neu_df = df_pool[df_pool["sentiment"] == "neutral"].reset_index(drop=True)
+    neg_df = df_pool[df_pool["sentiment"] == "negative"].reset_index(drop=True)
+    
+    total_days = 25
     yesterday = datetime.now() - timedelta(days=1)
-    start_date = yesterday - timedelta(days=24)
+    start_date = yesterday - timedelta(days=total_days - 1)
     
-    print(f"Generating balanced local real reviews ending yesterday: {yesterday.strftime('%Y-%m-%d')}...")
-    categories = ["pin_sac", "van_hanh", "noi_that", "dich_vu", "khac"]
+    print(f"Loaded pool ({len(df_pool)} reviews). Sampling 500 balanced real reviews ending yesterday: {yesterday.strftime('%Y-%m-%d')}...")
     
-    for day in range(25):
+    for day in range(total_days):
         cur_date = start_date + timedelta(days=day)
         ds = cur_date.strftime("%Y-%m-%d")
+        clean_date_str = ds.replace("-", "")
+        
+        # Balanced daily distribution (7 pos, 7/6 neu, 6/7 neg) for stable healthy baseline
+        n_p, n_n, n_g = (7, 7, 6) if day % 2 == 0 else (7, 6, 7)
+        
+        pos_slice = pos_df.iloc[day * 7 : (day + 1) * 7]
+        neu_slice = neu_df.iloc[day * 7 : day * 7 + n_n]
+        neg_slice = neg_df.iloc[day * 7 : day * 7 + n_g]
+        
+        day_samples = pd.concat([pos_slice, neu_slice, neg_slice]).sample(frac=1.0, random_state=day).reset_index(drop=True)
         
         day_reviews = []
-        # Generate balanced reviews: 7 positive, 6 neutral, 7 negative
-        for i in range(7):
+        for idx, (_, row) in enumerate(day_samples.iterrows(), 1):
+            rev_text = str(row["text"]).strip()
+            category = classify_aspect_category(rev_text)
             day_reviews.append({
-                "review_id": f"bk_{day}_p_{i}", "review_date": ds,
-                "category": categories[i % len(categories)],
-                "review_text": STABLE_TEMPLATES["positive"][i % len(STABLE_TEMPLATES["positive"])]
-            })
-        for i in range(6):
-            day_reviews.append({
-                "review_id": f"bk_{day}_n_{i}", "review_date": ds,
-                "category": categories[i % len(categories)],
-                "review_text": STABLE_TEMPLATES["neutral"][i % len(STABLE_TEMPLATES["neutral"])]
-            })
-        for i in range(7):
-            day_reviews.append({
-                "review_id": f"bk_{day}_g_{i}", "review_date": ds,
-                "category": categories[i % len(categories)],
-                "review_text": STABLE_TEMPLATES["negative"][i % len(STABLE_TEMPLATES["negative"])]
+                "review_id": f"FEED_{clean_date_str}_{idx:03d}",
+                "review_date": ds,
+                "category": category,
+                "review_text": rev_text,
+                "is_processed": 0,
+                "verified_sentiment": None
             })
             
         write_to_store_reviews(day_reviews)
-        print(f" - Ingesting & scoring: {ds}...")
+        print(f" - [{day+1}/{total_days}] Ingesting & scoring: {ds} (20 reviews)...")
         run_batch_scoring(ds, auto_retrain=False)
-    print("✅ SUCCESS: 25-Day stable, real-data history pre-populated offline!")
+        
+    print("================================================================")
+    print("✅ SUCCESS: 25-Day stable, real EV history pre-populated offline!")
+    print("================================================================")
 
 def ingest_unprocessed():
     print("================================================================")
@@ -123,10 +127,13 @@ def ingest_unprocessed():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--backfill", action="store_true")
-    group.add_argument("--ingest", action="store_true")
+    group.add_argument("--backfill", action="store_true", help="Run 25-day historical backfill")
+    group.add_argument("--ingest", action="store_true", help="Ingest and score pending reviews")
+    parser.add_argument("--reset", action="store_true", help="Clear store_reviews, predictions, drift_metrics before backfill")
     
     args = parser.parse_args()
     
-    if args.backfill: run_backfill()
-    elif args.ingest: ingest_unprocessed()
+    if args.backfill:
+        run_backfill(reset=args.reset)
+    elif args.ingest:
+        ingest_unprocessed()

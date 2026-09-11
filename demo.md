@@ -13,8 +13,8 @@ You can present this demo in either of your two mutually exclusive execution mod
 ### **Option A: Local Python Mode (Laptop Demo)**
 Ensure your servers are fully stopped. Open a terminal and run:
 ```bash
-# 1. Reset results DB and backfill 25 days of stable historical reviews (Offline local templates!)
-python data/ingest_pipeline.py --backfill
+# 1. Reset results DB and backfill 25 days of stable historical reviews (Realistic EV reviews pool)
+python data/ingest_pipeline.py --backfill --reset
 
 # 2. Start your serving servers cleanly (FastAPI, Streamlit, and MLflow UI)
 python run_local.py
@@ -33,8 +33,8 @@ docker compose build fastapi
 # 3. Bootstrap and train the initial champion model
 docker compose run --rm fastapi python ml/train_model.py
 
-# 4. Pre-populate the 25-day historical database into PostgreSQL
-docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
+# 4. Pre-populate the 25-day historical database into PostgreSQL (Clean slate backfill)
+docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset
 
 # 5. Start all 6 containers running in the background vĩnh viễn!
 docker compose up -d --build
@@ -66,8 +66,8 @@ docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analy
         docker compose exec -it fastapi python data/submit_review.py
         ```
     *   **The Simplified Loop:** There is **no date prompt anymore!** It automatically logs reviews under today's date in PostgreSQL/SQLite. Enter your reviews continuously:
-        *   `Review #1 Text:` $\rightarrow$ Type: `"Amazing experience! Great product quality and fast shipping."` $\rightarrow$ Press **Enter**.
-        *   `Review #2 Text:` $\rightarrow$ Type: `"Its okay, pretty standard item."` $\rightarrow$ Press **Enter**.
+        *   `Review #1 Text:` $\rightarrow$ Type: `"Xe chạy rất êm, tăng tốc tốt và pin dùng thực tế rất hài lòng."` $\rightarrow$ Press **Enter**.
+        *   `Review #2 Text:` $\rightarrow$ Type: `"Xe đi phố tạm ổn, nhưng mong muốn hãng mở rộng thêm trạm sạc ngoại thành."` $\rightarrow$ Press **Enter**.
         *   `Review #3 Text:` $\rightarrow$ Simply press **Enter** (leave empty) or type `exit` to finish and submit.
     *(Both reviews are now transactionally saved in your database table `store_reviews` with status `is_processed = 0`)*.
 
@@ -92,7 +92,7 @@ docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analy
 ## 🚨 Act II: The Production Crisis (Creating Manual Drift!)
 
 ### **What to do:**
-1.  **Submit Drifted Reviews (Simulating a customer & warehouse crisis):**
+1.  **Submit Drifted Reviews (Simulating an EV battery & recall crisis):**
     Open your terminal (or GCP SSH) and launch the submitter loop again:
     *   **Local (Option A):**
         ```bash
@@ -102,17 +102,17 @@ docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analy
         ```bash
         docker compose exec -it fastapi python data/submit_review.py
         ```
-    *   **Enter 10 Negative/Drifted Reviews:** To trigger drift, we will submit a highly-skewed batch of Spanish/weird negative complaints! Type each review followed by **Enter**:
-        1. `"¡Muy mal servicio! El producto llegó roto y muy tarde."`
-        2. `"Terrible quality, payment crashed at checkout screen."`
-        3. `"Order is stuck in the DelayGator warehouse loop!"`
-        4. `"¡Pésima calidad, el soporte al cliente no responde!"`
-        5. `"Absolutely awful experience, returning it immediately."`
-        6. `"Everything broke on first use! Unbelievable."`
-        7. `"¡No comprar! El artículo es completely inútil."`
-        8. `"Stuck in delivery pending loop for 10 days."`
-        9. `"Extremely disappointed, a complete waste of money."`
-        10. `"Worst customer service, rude and slow."`
+    *   **Enter 10 Negative/Drifted Reviews:** To trigger drift, we will submit a highly-skewed batch of severe EV battery & service complaints! Type each review followed by **Enter**:
+        1. `"Pin tụt quá nhanh khi chạy cao tốc, xe báo lỗi hệ thống liên tục!"`
+        2. `"Màn hình chính bị đen ngòm khi đang lái, cực kỳ nguy hiểm."`
+        3. `"Trụ sạc của hãng toàn bị lỗi không nhận diện được xe."`
+        4. `"Dịch vụ cứu hộ quá chậm, chờ 3 tiếng giữa trời nắng không ai đến."`
+        5. `"Chất lượng hoàn thiện quá tệ, tiếng ồn lốp và gió rít rất khó chịu."`
+        6. `"Hệ thống điều hòa tự ngắt giữa trời nóng, xe báo lỗi nhiệt pin."`
+        7. `"Phần mềm cập nhật xong bị lỗi phanh tái sinh giật cục."`
+        8. `"Đại lý hứa hẹn giao xe đúng hẹn nhưng trễ 2 tháng vô trách nhiệm."`
+        9. `"Pin báo ảo, từ 35% tụt thẳng xuống 5% trong vòng 3km."`
+        10. `"Chính sách bảo hành mập mờ, nhân viên kỹ thuật từ chối bảo hành pin."`
     *   **STEP 3:** Leave the next review text empty and press **Enter** (or type `exit`) to submit all 10 reviews.
 
 2.  **Process the Drifted Batch:** Run the ingestion pipeline to automatically detect and score the new outstanding reviews:
@@ -167,7 +167,7 @@ Now that you have supplied real, gold-standard human-verified labels:
 Let's simulate a situation where your AI model behaves erratically, and you need to bypass it instantly to ensure business continuity.
 1.  In the sidebar, click the **Active Serving Mode** dropdown and change it from `Machine Learning Model` to **`Rule-Based Fallback Rules`**.
 2.  A yellow warning box appears: `🛡️ Safe-Mode Active: ML Model Bypassed!`.
-3.  Go to **Live On-Demand Scoring**, type: `"The checkout payment-loop is crashing and poor DelayGator shipping is stuck!"` and click **Predict Sentiment**.
+3.  Go to **Live On-Demand Scoring**, type: `"Pin sạc quá tệ, xe bị lỗi màn hình đen và cứu hộ cực kỳ chậm chạp!"` and click **Predict Sentiment**.
 4.  **Result:** 
     *   It instantly returns **`NEGATIVE` (99.0% confidence)**.
     *   Scroll down to the **Live API Traffic Monitor** table. You will see that the logged record's `cleaned_text` has **`[RULE-BASED FALLBACK]`** appended to it!
@@ -196,8 +196,8 @@ docker compose build fastapi
 # 3. Bootstrap and train the initial champion model
 docker compose run --rm fastapi python ml/train_model.py
 
-# 4. Seed 25-day historical backfill into PostgreSQL
-docker compose run --rm fastapi python data/ingest_pipeline.py --backfill
+# 4. Seed 25-day historical backfill into PostgreSQL (Clean slate backfill)
+docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset
 
 # 5. Bring serving servers back online
 docker compose up -d --build
