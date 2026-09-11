@@ -1,6 +1,11 @@
 import os, ssl, urllib3, numpy as np, pandas as pd, requests, mlflow, mlflow.sklearn
 from datetime import datetime
 from sqlalchemy import create_engine, text
+import sys
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 
 def get_db_engine():
     return create_engine(os.environ.get("DATABASE_URL", "sqlite:///data/results.db"))
@@ -159,3 +164,13 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         mlflow.log_param("batch_drift_flag", str(drift_detected))
         
     print(f"Batch {ds} completed successfully!")
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Run batch scoring and drift monitoring")
+    parser.add_argument("--date", type=str, default=None, help="Execution date YYYY-MM-DD (defaults to all pending dates)")
+    parser.add_argument("--no-retrain", action="store_true", help="Disable auto retraining loop if drift detected")
+    args = parser.parse_args()
+    run_batch_scoring(ds=args.date, auto_retrain=not args.no_retrain)
+
+

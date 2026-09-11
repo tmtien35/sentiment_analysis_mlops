@@ -138,6 +138,10 @@ To easily monitor continuous batch scoring, data drift alerts, and the automated
 When the daily batch scoring DAG detects data drift and automatically triggers the retraining loop, all stdout/stderr logs are captured inside Airflow.
 *   **Where to inspect:** Inside the **Airflow Web UI** (`http://localhost:8080`).
 *   **How to view:** Log in with `mlops / mlops` ➔ Click the **`daily_sentiment_analysis`** (or batch scoring) DAG ➔ Select the latest completed scoring task (marked green) ➔ Click the **`Log`** tab at the top. Here, you will see the complete terminal logs of the model retraining process, including SQL ingestion, TF-IDF feature weights shift, evaluation, and programmatical MLflow registration.
+*   **DAG Architecture:**
+    1. **`crawl_daily_ev_reviews`**: Simulates automated daily EV scraping. Randomly samples 20 fresh, non-overlapping reviews from the 10,000 EV review pool (`data/ev_feed_simulation_pool.csv`), stamps them with the current execution date (`{{ ds }}`), classifies domain aspects (`pin_sac`, `van_hanh`, `noi_that`, `dich_vu`), and commits them to `store_reviews` with idempotency guards.
+    2. **`batch_scoring_and_drift_monitoring`**: Fetches newly queued reviews (`is_processed = 0`), predicts sentiment using the active `@champion` model, computes Population Stability Index (PSI) drift, and triggers self-healing retraining if drift exceeds threshold.
+
 
 ### **2. Manual Retraining Logs (Streamlit Container)**
 When an administrator triggers manual retraining by clicking the **`Trigger Retrain Manual`** button on the Streamlit sidebar, the script runs inside the Streamlit container.
@@ -209,13 +213,13 @@ During our evaluation and benchmarking phase, we evaluated candidate architectur
 
 | Model Candidate | Validation Macro-F1 | 5-Fold CV Macro-F1 | Validation Accuracy | Selection Status |
 | :--- | :---: | :---: | :---: | :---: |
-| **Logistic Regression (`C=2.0`)** | **1.0000** | **1.0000 ± 0.0000** | **100.00%** | **🏆 Champion (Active in MLflow Registry as @champion)** |
-| **Multinomial Naive Bayes** | 1.0000 | 1.0000 ± 0.0000 | 100.00% | Contender / Alternative |
-| **Linear SVM (`SGD log_loss`)** | 1.0000 | 1.0000 ± 0.0000 | 100.00% | Contender |
-| **Complement Naive Bayes** | 1.0000 | 1.0000 ± 0.0000 | 100.00% | Contender |
-| **Random Forest (150 trees)** | 1.0000 | 1.0000 ± 0.0000 | 100.00% | Baseline *(Tricked on contrastive clauses)* |
+| **Logistic Regression (`C=2.0`)** | **0.9203** | **0.8782 ± 0.0182** | **91.50%** | **🏆 Champion (Active in MLflow Registry as @champion)** |
+| **Linear SVM (`SGD log_loss`)** | 0.9265 | 0.8731 ± 0.0150 | 92.16% | Contender / Alternative |
+| **Multinomial Naive Bayes** | 0.9203 | 0.8789 ± 0.0147 | 91.50% | Contender |
+| **Complement Naive Bayes** | 0.9203 | 0.8789 ± 0.0147 | 91.50% | Contender |
+| **Random Forest (150 trees)** | 0.9203 | 0.8752 ± 0.0123 | 91.50% | Baseline *(Tricked on contrastive clauses)* |
 
-*The winning Logistic Regression pipeline was scored on the holdout test split (153 unseen reviews), achieving **100.0% Test Accuracy and 1.0000 Test Macro-F1**.*
+*The winning Logistic Regression pipeline was scored on the holdout test split (153 unseen reviews), achieving **88.24% Test Accuracy and 0.8830 Holdout Macro-F1** (Negative F1: 0.9114, Neutral F1: 0.8269, Positive F1: 0.9106).*
 
 ---
 
@@ -289,11 +293,11 @@ To power domain-specific sentiment classification and realistic benchmarking for
 *   **Total Scale:** 1,529 unique rows with **100% complete ground-truth labels**.
 *   **Cleaning Applied:** Capitalization normalized, misplaced mid-sentence punctuation fixed (`. so với` ➔ `, so với`), double punctuation removed, terminal punctuation ensured, Vietnamese Unicode preserved.
 *   **Sentiment Distribution:**
-    *   **Positive:** 606 reviews (39.63%)
-    *   **Neutral:** 473 reviews (30.94%)
-    *   **Negative:** 450 reviews (29.43%)
-*   **Brand Distribution:** VinFast (423), BYD (322), Tesla (211), Hyundai (171), MG (153), Kia (148), Wuling (101).
-*   **Source Distribution:** Dealer (316), YouTube (315), Review site (315), Forum (299), Facebook (284).
+    *   **Positive:** 582 reviews (38.06%)
+    *   **Neutral:** 537 reviews (35.12%)
+    *   **Negative:** 410 reviews (26.81%)
+*   **Brand Distribution:** VinFast (426), BYD (292), Tesla (215), MG (169), Hyundai (154), Kia (149), Wuling (124).
+*   **Source Distribution:** YouTube (319), Dealer (316), Forum (309), Review site (293), Facebook (292).
 
 > **Lưu ý về thư mục `docs/`:** Thư mục `docs/` chứa tài liệu báo cáo (Slide thuyết trình `TMA Slide-Session 10.ppt`, bảng phân công `MLOPS-Projects.xlsx`, báo cáo benchmark `benchmark_ev_results.md`, và file raw backup 10,000 dòng) được cấu hình **hoàn toàn chỉ lưu trữ trên máy tính cá nhân (local)** và được thêm vào `.gitignore` để không bị đẩy lên Git.
 
