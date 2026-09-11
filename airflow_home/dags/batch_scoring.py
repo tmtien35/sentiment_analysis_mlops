@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, text
 def get_db_engine():
     return create_engine(os.environ.get("DATABASE_URL", "sqlite:///data/results.db"))
 
-def run_batch_scoring(ds: str = None):
+def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
     engine = get_db_engine()
     if ds is None:
         print("Scanning 'store_reviews' for all distinct unprocessed dates...")
@@ -20,7 +20,7 @@ def run_batch_scoring(ds: str = None):
             print(f"Found pending reviews across {len(unprocessed_dates)} distinct date(s): {unprocessed_dates}")
             for d in unprocessed_dates:
                 print(f"\n---> Running batch scoring automatically for date: {d}")
-                run_batch_scoring(d)
+                run_batch_scoring(d, auto_retrain=auto_retrain)
             print("\n✅ SUCCESS: All outstanding reviews scored and locked successfully!")
             return
         except Exception as e:
@@ -124,16 +124,20 @@ def run_batch_scoring(ds: str = None):
             print(f"⚠️ [EMAIL] Failed to send real email via SMTP: {e}")
             print(" -> Note: Cloud providers (like GCP/AWS) often block SMTP port 587 by default to prevent spam.")
         
-        import sys, subprocess
-        print("\n🚨 [SELF-HEALING] Data Drift Detected! Triggering automated retraining pipeline...")
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.getcwd()
-        env["DRIFT_DATE"] = ds
-        try:
-            subprocess.run([sys.executable, "ml/train_model.py"], env=env, check=True)
-            print("🚨 [SELF-HEALING] Retraining completed successfully! Model updated to @champion.")
-        except Exception as err:
-            print(f"🚨 [SELF-HEALING] Retraining failed: {err}")
+        should_retrain = auto_retrain and (os.environ.get("ENABLE_SELF_HEALING", "true").lower() not in ("0", "false", "no"))
+        if should_retrain:
+            import sys, subprocess
+            print("\n🚨 [SELF-HEALING] Data Drift Detected! Triggering automated retraining pipeline...")
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.getcwd()
+            env["DRIFT_DATE"] = ds
+            try:
+                subprocess.run([sys.executable, "ml/train_model.py"], env=env, check=True)
+                print("🚨 [SELF-HEALING] Retraining completed successfully! Model updated to @champion.")
+            except Exception as err:
+                print(f"🚨 [SELF-HEALING] Retraining failed: {err}")
+        else:
+            print(f"ℹ️  [SELF-HEALING] Automated retraining skipped for {ds} (auto_retrain={auto_retrain}, ENABLE_SELF_HEALING={os.environ.get('ENABLE_SELF_HEALING', 'true')}).")
             
     with engine.begin() as conn:
         # Idempotently update drift metrics for this batch run (overwrites previously recorded metrics for today)

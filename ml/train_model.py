@@ -82,12 +82,14 @@ def main():
                         if row["verified_sentiment"] is not None and str(row["verified_sentiment"]).strip() != "" and str(row["verified_sentiment"]).lower() != "none" and str(row["verified_sentiment"]).lower() != "null":
                             sentiments.append(row["verified_sentiment"])
                         else:
-                            # Fallback to simple rule-based pseudo-labeler
+                            # Fallback to Vietnamese EV keyword pseudo-labeler
                             txt = row["review_text"]
                             txt_lower = txt.lower()
-                            if "delaygator" in txt or "payment-loop" in txt or "checkout-freeze" in txt or "poor" in txt_lower or "terrible" in txt_lower or "horrible" in txt_lower or "mal" in txt_lower or "pésima" in txt_lower:
+                            neg_words = ["kém", "lỗi", "chậm", "tệ", "thất vọng", "hỏng", "sụt pin", "đơ", "ồn", "đắt", "chờ", "yếu", "xấu", "delay", "kẹt"]
+                            pos_words = ["tốt", "êm", "hài lòng", "tiết kiệm", "thích", "đẹp", "tuyệt", "nhanh", "hiện đại", "mượt", "chu đáo", "ổn định", "bền"]
+                            if any(w in txt_lower for w in neg_words):
                                 sentiments.append("negative")
-                            elif "love" in txt_lower or "happy" in txt_lower or "great" in txt_lower or "excellent" in txt_lower:
+                            elif any(w in txt_lower for w in pos_words):
                                 sentiments.append("positive")
                             else:
                                 sentiments.append("neutral")

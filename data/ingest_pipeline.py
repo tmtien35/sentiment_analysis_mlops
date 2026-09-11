@@ -8,31 +8,30 @@ from airflow_home.dags.batch_scoring import run_batch_scoring
 
 STABLE_TEMPLATES = {
     "positive": [
-        "Xe chạy cực kỳ êm ái, tăng tốc nhanh và cách âm vượt ngoài mong đợi.",
-        "Trạm sạc phủ sóng rộng khắp, sạc siêu nhanh rất tiện lợi khi đi xa.",
-        "Nội thất hiện đại, màn hình trung tâm mượt mà, tính năng ADAS hoạt động chuẩn xác.",
-        "Dịch vụ chăm sóc khách hàng và cứu hộ 24/7 rất chu đáo và tận tình.",
-        "Tiết kiệm chi phí nhiên liệu rõ rệt so với xe xăng, rất hài lòng với quyết định mua xe.",
-        "Quãng đường di chuyển thực tế đúng như công bố, pin sạc rất bền bỉ.",
-        "Trải nghiệm lái tuyệt vời, khung gầm đầm chắc và an toàn tối đa."
+        "Xe chạy rất êm, tăng tốc tốt và cảm giác lái rất ổn.",
+        "Dịch vụ tại đại lý nhiệt tình, tư vấn khá rõ ràng và chu đáo.",
+        "Thiết kế đẹp, nội thất hiện đại và nhiều công nghệ thông minh.",
+        "Mình rất hài lòng với khả năng vận hành của xe trong nhu cầu hàng ngày.",
+        "Chi phí sử dụng hàng ngày khá tiết kiệm so với xe xăng, rất đáng mua.",
+        "Hệ thống hỗ trợ lái hoạt động tốt và rất dễ sử dụng.",
+        "Quãng đường di chuyển thực tế rất tốt, sạc nhanh tiện lợi."
     ],
     "neutral": [
-        "Xe đi tạm ổn trong tầm giá, phần mềm đôi khi cần khởi động lại.",
-        "Thời gian sạc ở mức chấp nhận được, mong có thêm trụ sạc nhanh ở ngoại thành.",
-        "Nội thất ở mức trung bình, chất liệu nhựa bình thường nhưng chấp nhận được.",
-        "Quãng đường đi thực tế phụ thuộc nhiều vào điều hòa và tốc độ chạy.",
-        "Treo hơi cứng khi qua gờ giảm tốc, còn lại vận hành cơ bản ổn định.",
-        "Hệ thống thông tin giải trí phản hồi bình thường, đủ dùng cho nhu cầu hàng ngày.",
-        "Dịch vụ bảo dưỡng mức độ tạm được, thời gian chờ lấy xe hơi lâu."
+        "Mình mới sử dụng vài tuần nên chưa có kết luận cuối cùng.",
+        "Xe phù hợp đi phố, còn đường dài thì mình chưa có nhiều trải nghiệm.",
+        "Mình thấy xe có ưu và nhược điểm riêng, chưa nghiêng hẳn về bên nào.",
+        "Dịch vụ đại lý khá bình thường, chưa có điểm gì đặc biệt.",
+        "Tính năng khá nhiều nhưng mình chưa dùng hết.",
+        "Khả năng vận hành ở mức ổn, chưa thấy vấn đề nghiêm trọng."
     ],
     "negative": [
-        "Phần mềm báo lỗi ảo liên tục, màn hình thỉnh thoảng bị đơ rất khó chịu.",
-        "Trụ sạc công cộng thường xuyên bị lỗi kết nối hoặc xe xăng chiếm chỗ.",
-        "Chất lượng hoàn thiện kém, tiếng ồn lốp và gió vọng vào khoang lái nhiều.",
-        "Pin sụt nhanh hơn nhiều so với thông số công bố khi đi đường dài.",
-        "Dịch vụ hậu mãi và bảo hành quá chậm, phụ tùng thay thế phải chờ đợi cả tháng.",
-        "Hệ thống điều hòa làm mát chậm trong thời tiết nắng nóng gay gắt.",
-        "Trải nghiệm dịch vụ rất thất vọng, nhân viên kỹ thuật xử lý chưa chuyên nghiệp."
+        "Trải nghiệm thực tế chưa tốt như những bài quảng cáo mình xem.",
+        "Phần mềm đôi lúc bị chậm và có vài lỗi nhỏ rất khó chịu.",
+        "Chất lượng hoàn thiện kém, tiếng ồn lốp và gió vọng vào khoang lái.",
+        "Thời gian sạc vẫn hơi lâu nếu cần đi đường dài.",
+        "Tầm hoạt động thực tế thấp hơn kỳ vọng khi chạy tốc độ cao.",
+        "Dịch vụ sau bán hàng chưa đồng đều, phụ tùng chờ đợi lâu.",
+        "Trải nghiệm dịch vụ rất thất vọng, nhân viên kỹ thuật xử lý chưa tốt."
     ]
 }
 
@@ -110,7 +109,7 @@ def run_backfill():
             
         write_to_store_reviews(day_reviews)
         print(f" - Ingesting & scoring: {ds}...")
-        run_batch_scoring(ds)
+        run_batch_scoring(ds, auto_retrain=False)
     print("✅ SUCCESS: 25-Day stable, real-data history pre-populated offline!")
 
 def ingest_unprocessed():
