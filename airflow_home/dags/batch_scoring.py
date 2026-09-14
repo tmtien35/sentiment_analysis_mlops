@@ -131,6 +131,15 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         df_pending = pd.DataFrame(res.fetchall(), columns=res.keys())
     pending_count = len(df_pending)
     if pending_count == 0:
+        # Fallback: check if there are unprocessed reviews on ANY other date (e.g. advanced simulation date or customer submission)
+        with engine.connect() as conn:
+            res_all = conn.execute(text("SELECT DISTINCT review_date FROM store_reviews WHERE is_processed = 0 ORDER BY review_date ASC"))
+            other_dates = [r[0] for r in res_all.fetchall() if r[0]]
+        if other_dates:
+            print(f"ℹ️  No pending reviews for '{ds}', but found unprocessed reviews for date(s): {other_dates}. Processing now...")
+            for od in other_dates:
+                run_batch_scoring(od, auto_retrain=auto_retrain)
+            return
         print(f"✅ STABLE: No pending reviews found for date {ds}. Skipping.")
         return
 
