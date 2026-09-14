@@ -119,8 +119,8 @@ def main():
         
         # Define and train the locked, high-performing Logistic Regression pipeline
         pipeline = Pipeline([
-            ('tfidf', TfidfVectorizer(max_features=5000, ngram_range=(1, 2), min_df=2)),
-            ('clf', LogisticRegression(C=2.0, max_iter=1000, random_state=42))
+            ('tfidf', TfidfVectorizer(max_features=8000, ngram_range=(1, 2), min_df=1, sublinear_tf=True)),
+            ('clf', LogisticRegression(C=2.0, class_weight='balanced', max_iter=1000, random_state=42))
         ])
         pipeline.fit(train_df['cleaned_text'], train_df['sentiment'])
         
@@ -172,6 +172,9 @@ def main():
         # Log params & metrics
         mlflow.log_param("clf__C", 2.0)
         mlflow.log_param("clf__solver", "lbfgs")
+        mlflow.log_param("clf__class_weight", "balanced")
+        mlflow.log_param("tfidf__sublinear_tf", True)
+        mlflow.log_param("tfidf__max_features", 8000)
         mlflow.log_param("model_family", "LogisticRegression")
         mlflow.log_param("dataset_hashes", hashes)
         mlflow.log_param("train_dataset_size", len(train_df))
