@@ -88,6 +88,7 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////app/airflow_home/airflow.db"
+      AIRFLOW__WEBSERVER__WORKERS: "2"
       DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
       SMTP_SENDER: ${SMTP_SENDER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
