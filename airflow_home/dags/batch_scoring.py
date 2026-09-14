@@ -227,9 +227,11 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         conn.execute(text("UPDATE store_reviews SET is_processed = 1 WHERE is_processed = 0 AND review_date = :ds"), {"ds": ds})
         
     print("Logging batch run to MLflow...")
-    with mlflow.start_run(run_name=f"Batch_{ds}"):
+    timestamp_str = datetime.now().strftime("%H%M%S")
+    with mlflow.start_run(run_name=f"Batch_{ds}_{timestamp_str}"):
         mlflow.log_param("batch_date", ds)
         mlflow.log_metric("batch_row_count", cumulative_count)
+        mlflow.log_metric("new_reviews_count", pending_count)
         mlflow.log_metric("batch_avg_confidence", avg_confidence)
         mlflow.log_metric("batch_psi_score", psi_score)
         mlflow.log_param("batch_drift_flag", str(drift_detected))

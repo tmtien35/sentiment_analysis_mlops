@@ -417,7 +417,7 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
 *   **Task 1: `crawl_daily_ev_reviews` (Thu thập dữ liệu mô phỏng):**
     *   Bot crawler trích xuất 20 đánh giá EV mới (chưa từng thu thập) từ kho dữ liệu mô phỏng `data/ev_feed_simulation_pool.csv`.
     *   Chỉ trích xuất raw text (không dùng nhãn sentiment có sẵn để đảm bảo tính khách quan thực tế), tự động phân loại danh mục khía cạnh xe điện (`pin_sac`, `van_hanh`, `noi_that`, `dich_vu`), gán `review_date = {{ ds }}`, `is_processed = 0`, `verified_sentiment = NULL`.
-    *   Ghi dữ liệu vào bảng `store_reviews` với cơ chế **Idempotency** (nếu ngày `{{ ds }}` đã có dữ liệu crawl thì tự động bỏ qua, chống trùng lặp).
+    *   Ghi dữ liệu vào bảng `store_reviews` với cơ chế sinh mã tự động nối tiếp theo ngày, bảo đảm không bị trùng lặp khóa chính và luôn nạp đúng 20 bản ghi mới mỗi lượt chạy.
 *   **Task 2: `batch_scoring_and_drift_monitoring` (Dự đoán hàng loạt & Giám sát trôi dạt):**
     *   Truy vấn các review đang chờ xử lý (`is_processed = 0`) thuộc ngày `{{ ds }}` từ `store_reviews`.
     *   Tiền xử lý văn bản qua hàm chuẩn hóa `clean_text` tích hợp bộ tách từ ghép tiếng Việt **PyVi** (`ViTokenizer`) giúp nhận diện chuẩn xác các từ vựng ngữ nghĩa và cụm phủ định (*"sạc_lâu", "tiết_kiệm", "không_quá", "giá_bán"*).
@@ -438,11 +438,13 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
 *   **Thời điểm kích hoạt:** Khi kỹ sư MLOps bấm nút **"Trigger DAG"** trên giao diện Airflow Web UI (`http://localhost:8080`) hoặc chạy lệnh CLI `airflow dags trigger daily_sentiment_analysis`.
 *   **Cơ chế thực thi:**
     *   Airflow lập tức khởi tạo một DagRun mới với `logical_date` là ngày hiện tại.
-    *   **Task 1 (`crawl_daily_ev_reviews`):** Kiểm tra xem ngày hiện tại đã có đợt crawl nào chưa:
-        *   Nếu ngày chạy chưa có dữ liệu: Bốc 20 review mới từ simulation pool nạp vào `store_reviews` với `is_processed = 0`.
-        *   Nếu ngày hôm nay đã hoàn tất xử lý (ví dụ: kỹ sư hoặc ban giám khảo bấm **Trigger DAG nhiều lần trong cùng một ngày** để thử nghiệm): Hệ thống thông minh tự động **tịnh tiến ngày mô phỏng sang ngày tiếp theo** (`max_date + 1 ngày`) để nạp mẻ 20 review mới, mở rộng dòng thời gian liên tục mà không gây trùng lặp.
+    *   **Task 1 (`crawl_daily_ev_reviews`):**
+        *   Mỗi lần kích hoạt (dù là bấm thủ công hay chạy tự động theo lịch), hệ thống lấy đúng ngày thực thi (`review_date = {{ ds }}` - mặc định là ngày hôm nay nếu không chọn ngày cụ thể).
+        *   Bot crawler trích xuất 20 đánh giá xe điện mới toanh từ kho dữ liệu mô phỏng `data/ev_feed_simulation_pool.csv` (đảm bảo không trùng lặp nội dung với bất kỳ đánh giá nào đã cào trước đó).
+        *   Tự động kiểm tra số lượng review hiện có trong ngày đó để sinh mã định danh nối tiếp (ví dụ: lần đầu cào `FEED_YYYYMMDD_001` đến `_020`, lần tiếp theo bấm sẽ sinh nối tiếp từ `_021` đến `_040`), hoàn toàn không bị chặn hay xung đột khóa chính, ghi vào `store_reviews` với trạng thái `is_processed = 0`.
     *   **Task 2 (`batch_scoring_and_drift_monitoring`):**
-        *   Tự động quét các bản ghi `is_processed = 0` (hỗ trợ cả cơ chế auto-discovery cho mẻ ngày mới tịnh tiến lẫn review do người dùng tự nhập) và thực hiện trọn vẹn chu trình: Preprocess ➔ Suy luận với model Champion ➔ Lưu bảng `predictions` ➔ Tính PSI Drift ➔ Kích hoạt Self-Healing nếu có drift ➔ Lưu bảng `drift_metrics` ➔ Cập nhật `is_processed = 1` ➔ Log mẻ chạy mới (`Batch_<date>`) lên MLflow.
+        *   Truy vấn 20 bản ghi mới nạp (`is_processed = 0`) thuộc ngày thực thi `{{ ds }}`.
+        *   Thực hiện trọn vẹn chu trình: Tiền xử lý PyVi ➔ Suy luận với model Champion ➔ Lưu kết quả vào bảng `predictions` ➔ Tính toán phân phối sentiment và chỉ số PSI tích lũy cho ngày đó ➔ Kích hoạt Self-Healing Retraining nếu phát hiện trôi dạt dữ liệu ➔ Cập nhật `drift_metrics` ➔ Khóa trạng thái `is_processed = 1` ➔ Ghi nhận mẻ chạy mới lên MLflow (`Batch_<ds>_<HHMMSS>`).
         *   *(Lưu ý: Nếu kích hoạt script CLI trực tiếp `python airflow_home/dags/batch_scoring.py` mà không truyền `--date`, pipeline sẽ tự động quét TẤT CẢ các ngày đang tồn đọng `is_processed = 0` trong database và xử lý dứt điểm lần lượt từng ngày).*
 
 ---
