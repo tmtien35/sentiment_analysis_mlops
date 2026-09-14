@@ -176,9 +176,20 @@ Let's simulate a situation where your AI model behaves erratically, and you need
 ## 🔄 Presentation Rehearsal & Update Playbook
 
 ### **Case 1: Standard Code/UI Update (Zero Data Loss - No Model Change):**
-If you make code, dashboard, or design updates on your laptop, push them to GitHub, and pull them on your Google Cloud VM, simply run this single command. Docker Compose V2 will hot-recreate only the modified container services in 2 seconds while preserving 100% of your persistent PostgreSQL history, predictions, and drift logs:
+If you make code, dashboard, or design updates on your laptop, push them to GitHub, and pull them on your Google Cloud VM, simply run this sequence. Docker Compose V2 will hot-recreate only the modified container services in 2 seconds while preserving 100% of your persistent PostgreSQL history, predictions, and drift logs:
 ```bash
-git pull && docker compose up -d --build
+# 1. Pull latest code from GitHub
+git pull origin main
+
+# 2. Setup .env configuration (if not already created on VM)
+cp .env.example .env
+nano .env   # (Fill your Gmail address and 16-character App Password)
+
+# 3. Hot-rebuild and restart containers
+docker compose up -d --build
+
+# 4. (Optional) Verify SMTP delivery from inside the Airflow container:
+docker compose exec airflow-scheduler python ml/test_email_smtp.py
 ```
 
 ### **Case 2: Model & Preprocessing Update (Update Champion Model in VM MLflow):**

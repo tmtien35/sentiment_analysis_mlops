@@ -350,9 +350,21 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
 *   **API Phục Vụ Dự Đoán FastAPI:** `http://<IP_HOẶC_LOCALHOST>:8000/docs` *(Swagger UI kiểm thử API trực tuyến)*
 
 #### ⚙️ **Sổ Tay Thao Tác Vận Hành Chuẩn (Operations Playbook)**
-*   **Kịch bản 1: Cập nhật giao diện / fix bug nhẹ (Không mất dữ liệu, giữ nguyên model):**
+*   **Kịch bản 1: Cập nhật code / fix bug / cấu hình mới từ Git (Không mất dữ liệu PostgreSQL, giữ nguyên model):**
     ```bash
-    git pull && docker compose up -d --build
+    # 1. Kéo mã nguồn mới nhất về
+    git pull origin main
+
+    # 2. Khởi tạo tệp cấu hình môi trường (nếu máy chủ chưa có file .env)
+    cp .env.example .env
+    nano .env   # (Điền Gmail và App Password của bạn vào rồi lưu lại)
+
+    # 3. Đóng gói lại và khởi động các container ở chế độ nền
+    docker compose up -d --build
+    ```
+    *Kiểm tra nhanh xem Airflow container đã nhận cấu hình email cảnh báo chưa:*
+    ```bash
+    docker compose exec airflow-scheduler python ml/test_email_smtp.py
     ```
 *   **Kịch bản 2: Cập nhật mã nguồn có thay đổi Model hoặc Tiền Xử Lý (Giữ nguyên dữ liệu PostgreSQL, retrain Champion mới trên MLflow của VM):**
     ```bash
