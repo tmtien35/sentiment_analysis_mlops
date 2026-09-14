@@ -567,6 +567,36 @@ else:
                     use_container_width=True, hide_index=True
                 )
                 
+                # Confirmation Dialog for Bulk Approval
+                if hasattr(st, "dialog"):
+                    @st.dialog("⚠️ Xác Nhận Phê Duyệt Hàng Loạt (Bulk Approval)")
+                    def confirm_bulk_approve_dialog(updates_to_run):
+                        st.warning(f"Bạn có chắc chắn muốn phê duyệt **{len(updates_to_run)}** dự đoán AI làm nhãn vàng (Ground Truth) không?")
+                        st.markdown("""
+                        * **Dòng đã chỉnh sửa thủ công:** Giữ nguyên nhãn bạn đã chọn.
+                        * **Dòng còn trống:** Tự động lấy nhãn dự đoán của AI (`predicted_sentiment`).
+                        * **Hệ quả:** Dữ liệu sẽ lưu trực tiếp vào cơ sở dữ liệu (`store_reviews`) để cung cấp nhãn vàng cho các đợt Retrain tiếp theo.
+                        """)
+                        col_d1, col_d2 = st.columns(2)
+                        with col_d1:
+                            if st.button("✅ Đồng Ý Phê Duyệt", key="dlg_confirm_bulk", use_container_width=True, type="primary"):
+                                try:
+                                    with engine.begin() as conn:
+                                        for upd in updates_to_run:
+                                            conn.execute(
+                                                text("UPDATE store_reviews SET verified_sentiment = :label WHERE review_id = :id"),
+                                                {"label": upd["label"], "id": upd["id"]}
+                                            )
+                                    st.success(f"🎉 Đã phê duyệt và lưu thành công {len(updates_to_run)} bản ghi vào cơ sở dữ liệu!")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as ex:
+                                    st.error(f"Lỗi khi phê duyệt hàng loạt: {ex}")
+                        with col_d2:
+                            if st.button("❌ Hủy Bỏ", key="dlg_cancel_bulk", use_container_width=True):
+                                st.rerun()
+
+
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
                     if st.button("💾 Save Manually Edited Rows Only", use_container_width=True):
@@ -616,20 +646,38 @@ else:
                             updates.append({"id": r_id, "label": db_val})
                             
                         if len(updates) > 0:
+                            if hasattr(st, "dialog"):
+                                confirm_bulk_approve_dialog(updates)
+                            else:
+                                st.session_state["pending_bulk_updates"] = updates
+                                st.rerun()
+                        else:
+                            st.info("No predictions found to approve.")
+
+                # Fallback inline confirmation for environments without st.dialog
+                if not hasattr(st, "dialog") and "pending_bulk_updates" in st.session_state and st.session_state["pending_bulk_updates"]:
+                    pending = st.session_state["pending_bulk_updates"]
+                    st.warning(f"⚠️ **Xác nhận:** Bạn có chắc chắn muốn phê duyệt **{len(pending)}** dự đoán AI làm nhãn vàng không?")
+                    c_f1, c_f2 = st.columns(2)
+                    with c_f1:
+                        if st.button("✅ Đồng Ý Phê Duyệt", key="fallback_confirm_bulk", use_container_width=True, type="primary"):
                             try:
                                 with engine.begin() as conn:
-                                    for upd in updates:
+                                    for upd in pending:
                                         conn.execute(
                                             text("UPDATE store_reviews SET verified_sentiment = :label WHERE review_id = :id"),
                                             {"label": upd["label"], "id": upd["id"]}
                                         )
-                                st.success(f"🎉 Successfully approved and saved {len(updates)} predictions to the database!")
+                                st.session_state.pop("pending_bulk_updates", None)
+                                st.success(f"🎉 Đã phê duyệt và lưu thành công {len(pending)} bản ghi!")
                                 st.cache_data.clear()
                                 st.rerun()
                             except Exception as ex:
-                                st.error(f"Error bulk approving predictions: {ex}")
-                        else:
-                            st.info("No predictions found to approve.")
+                                st.error(f"Lỗi: {ex}")
+                    with c_f2:
+                        if st.button("❌ Hủy Bỏ", key="fallback_cancel_bulk", use_container_width=True):
+                            st.session_state.pop("pending_bulk_updates", None)
+                            st.rerun()
             else:
                 st.success("🎉 No reviews requiring manual audit found for the selected filters!")
         else:

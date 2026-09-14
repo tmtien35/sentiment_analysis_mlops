@@ -147,7 +147,7 @@ Before triggering manual retraining, let's play the role of an Admin auditing th
    * `Show only unverified reviews (where Human Verified Label is NULL)` (checked by default).
 4. Under **📝 Edit and Verify Review Sentiments in Bulk**:
    * To correct an AI prediction: Double-click any cell in the **Human Verified Label** column, choose the correct sentiment (positive, neutral, negative), and click **`💾 Save Manually Edited Rows Only`**.
-   * To approve AI predictions in 1-Click: If the remaining AI predictions are correct, simply click **`✅ Bulk Approve Remaining AI Predictions`**!
+   * To approve AI predictions in bulk: If the remaining AI predictions are correct, click **`✅ Bulk Approve Remaining AI Predictions`**. A safety confirmation dialog will pop up displaying the exact number of reviews to approve. Click **`✅ Đồng Ý Phê Duyệt`** to confirm!
 5. **Result:** The system transactionally updates `verified_sentiment` in `store_reviews` and instantly refreshes the page, clearing those reviews from the audit list! You can audit and verify hundreds of drifted reviews in bulk in under 10 seconds, without ever typing a SQL command line.
 
 ### **3. Test the "Trigger Retrain Manual" (Cưỡng bức học máy):**
