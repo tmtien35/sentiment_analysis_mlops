@@ -13,8 +13,80 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from airflow_home.dags.batch_scoring import load_dotenv_config, send_drift_email
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import datetime
+
+
+def load_dotenv_config():
+    """Load key-value pairs from .env file into os.environ if not already defined."""
+    candidate_paths = [
+        os.path.join(project_root, ".env"),
+        os.path.join(os.getcwd(), ".env"),
+        ".env"
+    ]
+    for p in candidate_paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k, v = k.strip(), v.strip()
+                            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                                v = v[1:-1]
+                            if k not in os.environ:
+                                os.environ[k] = v
+                break
+            except Exception:
+                pass
+
+
+def send_drift_email(subject: str, html_body: str, ds: str = None) -> bool:
+    """Send real-time alert email via Gmail SMTP with dual-port fallback (587 STARTTLS -> 465 SSL)."""
+    load_dotenv_config()
+    sender_email = os.environ.get("SMTP_SENDER", "").strip()
+    sender_password = os.environ.get("SMTP_PASSWORD", "").strip()
+    recipient_email = os.environ.get("SMTP_RECIPIENT", sender_email).strip() or "tmtien35@gmail.com"
+
+    if not sender_password or not sender_email:
+        print("ℹ️  [EMAIL ALERT] Real email sending skipped (SMTP_SENDER or SMTP_PASSWORD not configured).")
+        return False
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = recipient_email
+    msg.attach(MIMEText(html_body, "html"))
+
+    print(f"📧 [EMAIL ALERT] Attempting to deliver alert email from '{sender_email}' to '{recipient_email}'...")
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipient_email, msg.as_string())
+        print(f"✅ [EMAIL ALERT] Alert email successfully delivered to '{recipient_email}' via Gmail Port 587 (STARTTLS)!")
+        return True
+    except smtplib.SMTPAuthenticationError as auth_err:
+        print(f"❌ [EMAIL AUTH ERROR] Gmail rejected credentials: {auth_err}")
+        return False
+    except Exception as e587:
+        print(f"⚠️ [EMAIL ALERT] Port 587 failed ({e587}). Auto-attempting Port 465 (SSL fallback)...")
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipient_email, msg.as_string())
+        print(f"✅ [EMAIL ALERT] Alert email successfully delivered to '{recipient_email}' via Gmail Port 465 (SSL)!")
+        return True
+    except Exception as e465:
+        print(f"❌ [EMAIL ALERT] Both Port 587 and Port 465 failed: {e465}")
+        return False
 
 
 def main():

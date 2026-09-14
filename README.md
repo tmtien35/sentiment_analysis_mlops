@@ -200,6 +200,35 @@ wsl --install
    cd sentiment_analysis_mlops
    ```
 
+#### Bước 2.4: Cấu Hình Email Cảnh Báo Data Drift (Real-time Gmail Alerts Trên Windows)
+Hệ thống tích hợp cơ chế tự động gửi email cảnh báo về hòm thư khi phát hiện hiện tượng trôi dạt dữ liệu vựng (Data Drift với chỉ số $\text{PSI} \ge 0.15$). Để nhận email thực tế vào hộp thư cá nhân trên máy Windows:
+
+1. **Khởi tạo tệp cấu hình `.env`:**
+   Mở PowerShell tại thư mục gốc dự án và chạy lệnh:
+   ```powershell
+   copy .env.example .env
+   ```
+2. **Lấy Mật khẩu ứng dụng (Gmail App Password - 1 Phút):**
+   * Truy cập trang bảo mật tài khoản Google: [https://myaccount.google.com/security](https://myaccount.google.com/security)
+   * Bật **Xác minh 2 bước** (*2-Step Verification*) nếu tài khoản chưa bật.
+   * Truy cập liên kết tạo mật khẩu ứng dụng: [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+   * Đặt tên ứng dụng (ví dụ: `MLOps Alert`) và nhấn **Tạo (Create)**. Google sẽ cấp mã 16 chữ cái (ví dụ: `abcd efgh ijkl mnop`).
+3. **Mở tệp `.env` để điền thông tin:**
+   ```powershell
+   notepad .env
+   ```
+   *Điền 3 dòng sau rồi lưu lại (`Ctrl + S`):*
+   ```ini
+   SMTP_SENDER=email_cua_ban@gmail.com
+   SMTP_PASSWORD=16_chu_cai_vua_tao
+   SMTP_RECIPIENT=email_nhan_canh_bao@gmail.com
+   ```
+4. **Kiểm tra gửi email trong 3 giây:**
+   ```powershell
+   python ml/test_email_smtp.py
+   ```
+   *(Hệ thống hỗ trợ chuyển cổng thông minh Port 587 -> Port 465. Email kiểm thử sẽ xuất hiện ngay trong hòm thư cá nhân của bạn).*
+
 ---
 
 ### 🐧 3. Hướng Dẫn Cài Đặt Trên Linux (Ubuntu / Debian / GCP VM / AWS EC2)
@@ -240,23 +269,23 @@ git clone https://github.com/tmtien35/sentiment_analysis_mlops.git
 cd sentiment_analysis_mlops
 ```
 
-#### Bước 3.4: Cấu Hình Email Cảnh Báo Data Drift (Real-time Gmail Alerts)
-Hệ thống tích hợp cơ chế tự động gửi email cảnh báo về hòm thư khi phát hiện hiện tượng trôi dạt dữ liệu vựng (Data Drift với chỉ số $\text{PSI} \ge 0.15$). Để nhận email thực tế vào hộp thư cá nhân:
+#### Bước 3.4: Cấu Hình Email Cảnh Báo Data Drift (Real-time Gmail Alerts Trên Linux / Cloud VM)
+Hệ thống tích hợp cơ chế tự động gửi email cảnh báo về hòm thư khi phát hiện hiện tượng trôi dạt dữ liệu vựng (Data Drift với chỉ số $\text{PSI} \ge 0.15$). Để nhận email thực tế vào hộp thư cá nhân trên máy Linux / Cloud VM:
 
 1. **Khởi tạo tệp cấu hình `.env`:**
    ```bash
-   # Trên Linux / macOS:
    cp .env.example .env
-
-   # Trên Windows PowerShell:
-   copy .env.example .env
    ```
 2. **Lấy Mật khẩu ứng dụng (Gmail App Password - 1 Phút):**
    * Truy cập trang bảo mật tài khoản Google: [https://myaccount.google.com/security](https://myaccount.google.com/security)
    * Bật **Xác minh 2 bước** (*2-Step Verification*) nếu tài khoản chưa bật.
    * Truy cập liên kết tạo mật khẩu ứng dụng: [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
    * Đặt tên ứng dụng (ví dụ: `MLOps Alert`) và nhấn **Tạo (Create)**. Google sẽ cấp mã 16 chữ cái (ví dụ: `abcd efgh ijkl mnop`).
-3. **Điền thông tin vào `.env`:**
+3. **Mở tệp `.env` để điền thông tin:**
+   ```bash
+   nano .env
+   ```
+   *Điền 3 dòng cấu hình sau rồi lưu lại (`Ctrl + O` -> `Enter` -> `Ctrl + X`):*
    ```ini
    SMTP_SENDER=email_cua_ban@gmail.com
    SMTP_PASSWORD=16_chu_cai_vua_tao
@@ -264,7 +293,7 @@ Hệ thống tích hợp cơ chế tự động gửi email cảnh báo về hò
    ```
 4. **Kiểm tra đường truyền gửi email trong 3 giây:**
    ```bash
-   python ml/test_email_smtp.py
+   python3 ml/test_email_smtp.py
    ```
    *(Hệ thống hỗ trợ cơ chế chuyển cổng thông minh: ưu tiên Port 587 STARTTLS, nếu bị chặn sẽ tự động thử tiếp Port 465 SSL. Khi test thành công, email kiểm thử sẽ xuất hiện ngay trong hòm thư của bạn).*
 
