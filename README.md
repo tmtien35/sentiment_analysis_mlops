@@ -352,8 +352,7 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
     docker compose build fastapi && \
     docker compose run --rm fastapi python ml/train_model.py && \
     docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset && \
-    docker compose up -d --build && \
-    docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
+    docker compose up -d --build
     ```
 
 *   **Dành cho Windows PowerShell:**
@@ -362,15 +361,15 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
     docker compose build fastapi; `
     docker compose run --rm fastapi python ml/train_model.py; `
     docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset; `
-    docker compose up -d --build; `
-    docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
+    docker compose up -d --build
     ```
-*Lệnh trên tự động thực hiện trong vòng chưa đầy 60 giây:*
+*Lệnh trên tự động thực hiện hoàn tất toàn bộ quy trình:*
 1. Dọn dẹp sạch sẽ các container và ổ đĩa dữ liệu cũ (`down -v`).
 2. Xây dựng Docker images và huấn luyện mô hình ban đầu, đăng ký lên MLflow làm `@champion`.
 3. Khởi tạo cơ sở dữ liệu PostgreSQL và nạp sẵn 25 ngày dữ liệu lịch sử ổn định (500 đánh giá xe điện không trùng lặp).
 4. Khởi chạy toàn bộ 6 container ở chế độ nền: Postgres (`5432`), MLflow (`5000`), Airflow (`8080`), FastAPI (`8000`), Streamlit (`8501`).
-5. Kích hoạt mở khóa DAG `daily_sentiment_analysis` trên Airflow để sẵn sàng chạy tự động hàng ngày.
+5. **Tự động kích hoạt DAG:** DAG `daily_sentiment_analysis` đã được cấu hình tự động mở khóa sẵn (`is_paused_upon_creation=False`). Sau khi Airflow hoàn tất quá trình khởi tạo metadata lần đầu (~30–45 giây), DAG sẽ tự động xuất hiện ở trạng thái **ON** trên Web UI.
+*(Nếu muốn kiểm tra danh sách DAG từ dòng lệnh sau khi dịch vụ sẵn sàng: `docker compose exec airflow-webserver airflow dags list`).*
 
 #### 🌐 **Các Địa Chỉ Dịch Vụ Mở Trên Trình Duyệt**
 *   **Bảng Điều Khiển Phân Tích Streamlit:** `http://<IP_HOẶC_LOCALHOST>:8501` *(Kết nối trực tiếp PostgreSQL, thẩm định Active Learning & số liệu vận hành)*

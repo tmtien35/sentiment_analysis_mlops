@@ -92,6 +92,7 @@ services:
       airflow webserver --port 8080"
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
       AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////app/airflow_home/airflow.db"
       AIRFLOW__WEBSERVER__WORKERS: "2"
@@ -123,6 +124,7 @@ services:
       airflow scheduler"
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
       AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////app/airflow_home/airflow.db"
       DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db

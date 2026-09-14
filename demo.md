@@ -41,12 +41,9 @@ docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --rese
 
 # 5. Start all 6 containers running in the background!
 docker compose up -d --build
-
-# 6. Unpause the Airflow DAG for Automated Daily Ingestion & Scoring
-docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
 ```
 *   **Websites to Open:** Replace `localhost` with your **`IP_Google_Cloud`** (e.g., `http://[IP_Google_Cloud]:8501`, `http://[IP_Google_Cloud]:5000`, `http://[IP_Google_Cloud]:8080`).
-*   *(Note: Step 6 unpauses the Airflow DAG so reviews are automatically processed each midnight. You can also toggle it on/off in the Airflow Web UI at `http://[IP_Google_Cloud]:8080`)*.
+*   *(Note: DAG `daily_sentiment_analysis` is pre-configured with `is_paused_upon_creation=False`, so it will automatically be active (ON) as soon as Airflow finishes its 30-second first-time metadata initialization. You can verify DAG status with `docker compose exec airflow-webserver airflow dags list` or toggle it directly in the Airflow Web UI at `http://[IP_Google_Cloud]:8080`)*.
 
 ---
 
@@ -213,9 +210,8 @@ docker compose run --rm fastapi python ml/train_model.py
 # 4. Seed 25-day historical backfill into PostgreSQL (Clean slate backfill)
 docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset
 
-# 5. Bring serving servers back online and unpause DAG
-docker compose up -d --build && \
-docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
+# 5. Bring serving servers back online
+docker compose up -d --build
 ```
 This is fully idempotent, robust, and can be repeated infinite times!
 

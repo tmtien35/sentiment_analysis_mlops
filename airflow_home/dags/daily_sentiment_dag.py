@@ -21,6 +21,7 @@ dag = DAG(
     schedule_interval='@daily',
     catchup=False,
     max_active_runs=1,
+    is_paused_upon_creation=False,
 )
 
 # Task 1: Scrape / sample non-overlapping daily reviews from the EV simulation pool
