@@ -11,6 +11,8 @@ __pycache__/
 
 # 💻 Environments & Virtualenvs
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -49,4 +51,6 @@ data/incoming/
 
 # 🚗 Local Documents, Presentations & EV Raw Backups (Kept local, untracked by Git)
 docs/
+Docs/
+
 

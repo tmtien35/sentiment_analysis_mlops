@@ -42,6 +42,9 @@ services:
     environment:
       DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
       FASTAPI_URL: http://localhost:8000/predict
+      SMTP_SENDER: ${SMTP_SENDER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_RECIPIENT: ${SMTP_RECIPIENT:-}
     ports:
       - "8000:8000"
     volumes:
@@ -88,6 +91,9 @@ services:
       AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////app/airflow_home/airflow.db"
       DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
+      SMTP_SENDER: ${SMTP_SENDER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_RECIPIENT: ${SMTP_RECIPIENT:-}
     ports:
       - "8080:8080"
     volumes:
@@ -112,6 +118,9 @@ services:
       AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////app/airflow_home/airflow.db"
       DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
+      SMTP_SENDER: ${SMTP_SENDER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_RECIPIENT: ${SMTP_RECIPIENT:-}
     volumes:
       - ./airflow_home:/app/airflow_home
       - ./data:/app/data

@@ -157,6 +157,119 @@ flowchart TB
 
 ---
 
+## 💻 Hướng Dẫn Cài Đặt Ban Đầu Cho Người Mới (Prerequisites & Installation)
+
+Phần này hướng dẫn chi tiết từng bước chuẩn bị môi trường từ máy trắng dành cho người dùng mới trên cả hai hệ điều hành: **Windows** và **Linux** (Ubuntu Desktop, Google Cloud Platform VM, AWS EC2).
+
+---
+
+### 🖥️ 1. Yêu Cầu Cấu Hình Phần Cứng Tối Thiểu
+*   **CPU:** Tối thiểu 2 Cores (Khuyến nghị 4 Cores trở lên).
+*   **RAM:** Tối thiểu 4GB RAM (Khuyến nghị 8GB RAM để vận hành đồng thời 6 container Docker mượt mà).
+*   **Ổ cứng:** Tối thiểu 10GB dung lượng trống.
+*   **Hệ điều hành:**
+    *   **Windows:** Windows 10/11 64-bit (phiên bản Home, Pro, Enterprise hoặc Education).
+    *   **Linux:** Ubuntu 20.04 LTS / 22.04 LTS / 24.04 LTS hoặc Debian 11/12.
+
+---
+
+### 🪟 2. Hướng Dẫn Cài Đặt Trên Windows
+
+#### Bước 2.1: Kích hoạt WSL 2 (Windows Subsystem for Linux)
+Mở cửa sổ **PowerShell** bằng quyền Administrator (nhấp chuột phải vào Start -> chọn *Terminal (Admin)* hoặc *PowerShell (Admin)*) và gõ lệnh:
+```powershell
+wsl --install
+```
+*Ghi chú: Nếu hệ thống yêu cầu khởi động lại máy tính, hãy Restart để hoàn tất kích hoạt WSL 2.*
+
+#### Bước 2.2: Cài đặt Docker Desktop trên Windows
+1. Truy cập trang chủ Docker và tải về [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/).
+2. Chạy file cài đặt `Docker Desktop Installer.exe`. Trong quá trình cài, đảm bảo đánh dấu chọn **"Use WSL 2 instead of Hyper-V (recommended)"**.
+3. Sau khi cài xong, khởi động ứng dụng **Docker Desktop**. Chờ khoảng 1-2 phút cho Docker khởi động, khi thấy góc dưới bên trái hiển thị biểu tượng cá voi màu xanh lá kèm chữ **"Engine running"** là đã sẵn sàng.
+4. Mở cửa sổ **PowerShell** kiểm tra cài đặt:
+   ```powershell
+   docker --version
+   docker compose version
+   ```
+
+#### Bước 2.3: Cài đặt Git & Tải Mã Nguồn Dự Án (Clone Repo)
+1. Tải và cài đặt [Git for Windows](https://git-scm.com/download/win) (nếu máy tính chưa cài đặt Git).
+2. Mở **PowerShell**, di chuyển đến thư mục bạn muốn lưu dự án và tải mã nguồn:
+   ```powershell
+   git clone https://github.com/tmtien35/sentiment_analysis_mlops.git
+   cd sentiment_analysis_mlops
+   ```
+
+---
+
+### 🐧 3. Hướng Dẫn Cài Đặt Trên Linux (Ubuntu / Debian / GCP VM / AWS EC2)
+
+#### Bước 3.1: Cập nhật hệ thống & Cài đặt Git, Curl
+Mở Terminal trên máy Linux hoặc qua kết nối SSH vào Cloud VM, chạy lệnh:
+```bash
+sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get install -y git curl ca-certificates
+```
+
+#### Bước 3.2: Cài đặt Docker & Docker Compose Plugin (Chính thức & Tự Động)
+Sử dụng script cài đặt tự động được cung cấp chính thức bởi Docker:
+```bash
+# 1. Tải và chạy script cài đặt Docker Engine
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# 2. Cấp quyền chạy Docker cho người dùng hiện tại (tránh phải gõ sudo mỗi lần chạy)
+sudo usermod -aG docker $USER
+newgrp docker
+
+# 3. Kích hoạt dịch vụ Docker tự khởi động cùng hệ thống
+sudo systemctl enable docker
+sudo systemctl start docker
+```
+
+*Kiểm tra Docker đã cài đặt thành công:*
+```bash
+docker --version
+docker compose version
+```
+*(Cả hai lệnh cần xuất hiện thông tin phiên bản Docker Engine và Docker Compose v2.x)*.
+
+#### Bước 3.3: Tải Mã Nguồn Dự Án (Clone Repo)
+```bash
+git clone https://github.com/tmtien35/sentiment_analysis_mlops.git
+cd sentiment_analysis_mlops
+```
+
+#### Bước 3.4: Cấu Hình Email Cảnh Báo Data Drift (Real-time Gmail Alerts)
+Hệ thống tích hợp cơ chế tự động gửi email cảnh báo về hòm thư khi phát hiện hiện tượng trôi dạt dữ liệu vựng (Data Drift với chỉ số $\text{PSI} \ge 0.15$). Để nhận email thực tế vào hộp thư cá nhân:
+
+1. **Khởi tạo tệp cấu hình `.env`:**
+   ```bash
+   # Trên Linux / macOS:
+   cp .env.example .env
+
+   # Trên Windows PowerShell:
+   copy .env.example .env
+   ```
+2. **Lấy Mật khẩu ứng dụng (Gmail App Password - 1 Phút):**
+   * Truy cập trang bảo mật tài khoản Google: [https://myaccount.google.com/security](https://myaccount.google.com/security)
+   * Bật **Xác minh 2 bước** (*2-Step Verification*) nếu tài khoản chưa bật.
+   * Truy cập liên kết tạo mật khẩu ứng dụng: [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+   * Đặt tên ứng dụng (ví dụ: `MLOps Alert`) và nhấn **Tạo (Create)**. Google sẽ cấp mã 16 chữ cái (ví dụ: `abcd efgh ijkl mnop`).
+3. **Điền thông tin vào `.env`:**
+   ```ini
+   SMTP_SENDER=email_cua_ban@gmail.com
+   SMTP_PASSWORD=16_chu_cai_vua_tao
+   SMTP_RECIPIENT=email_nhan_canh_bao@gmail.com
+   ```
+4. **Kiểm tra đường truyền gửi email trong 3 giây:**
+   ```bash
+   python ml/test_email_smtp.py
+   ```
+   *(Hệ thống hỗ trợ cơ chế chuyển cổng thông minh: ưu tiên Port 587 STARTTLS, nếu bị chặn sẽ tự động thử tiếp Port 465 SSL. Khi test thành công, email kiểm thử sẽ xuất hiện ngay trong hòm thư của bạn).*
+
+---
+
 ## 🚀 Chế Độ Khởi Động & Vận Hành Hệ Thống
 
 Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ linh hoạt cho cả nhu cầu phát triển cá nhân và đánh giá triển khai sản phẩm:
@@ -166,7 +279,22 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
 ### ⚡ Chế Độ A: Chạy Python Cục Bộ (Dành cho Lập Trình Viên & Kiểm Thử Nhanh)
 *Sử dụng chế độ này để chạy trực tiếp trên máy cá nhân mà không cần khởi động hệ thống container Docker nền.*
 
-*   **Cách khởi động (1 lệnh duy nhất):** Mở cửa sổ dòng lệnh tại thư mục gốc dự án và chạy:
+*   **Chuẩn bị môi trường Python (chỉ làm lần đầu):**
+    Yêu cầu máy tính đã cài **Python 3.10 - 3.12**. Tạo môi trường ảo và cài đặt thư viện:
+    ```bash
+    # 1. Khởi tạo môi trường ảo
+    python -m venv .venv
+
+    # 2. Kích hoạt môi trường:
+    # Trên Windows (PowerShell): .venv\Scripts\Activate.ps1
+    # Trên Windows (CMD):        .venv\Scripts\activate.bat
+    # Trên Linux / macOS:        source .venv/bin/activate
+
+    # 3. Cài đặt toàn bộ thư viện:
+    pip install -r requirements.txt
+    ```
+
+*   **Khởi chạy nhanh 1 bước:** Mở terminal tại thư mục gốc dự án và chạy:
     ```bash
     python run_local.py
     ```
@@ -174,23 +302,40 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
 *   **Địa chỉ truy cập trên trình duyệt:**
     *   **Bảng điều khiển Streamlit:** [http://localhost:8501](http://localhost:8501)
     *   **Tài liệu API Swagger FastAPI:** [http://localhost:8000/docs](http://localhost:8000/docs)
-*   **Cách dừng hoạt động:** Nhấn tổ hợp phím **`[Ctrl + C]`** trong cửa sổ dòng lệnh đó. Toàn bộ tiến trình sẽ dừng và giải phóng cổng ngay lập tức.
+*   **Các lệnh thực thi từng bước riêng lẻ (khi cần phát triển sâu):**
+    *   *Nạp dữ liệu lịch sử:* `python data/ingest_pipeline.py --backfill`
+    *   *Gửi đánh giá tương tác CLI:* `python data/submit_review.py`
+    *   *Huấn luyện & tuyển chọn Champion:* `python ml/train_model.py`
+    *   *Chạy kiểm thử tự động:* `python -m pytest ml/test_pipeline.py`
+*   **Cách dừng hoạt động an toàn:** Nhấn tổ hợp phím **`[Ctrl + C]`** trong cửa sổ dòng lệnh. Toàn bộ tiến trình sẽ dừng và giải phóng cổng ngay lập tức.
 
 ---
 
-### 🐳 Chế Độ B: Chạy Toàn Bộ Container Docker (Dành cho Trình Diễn, Chấm Điểm & Cloud)
+### 🐳 Chế Độ B: Chạy Toàn Bộ Container Docker (Dành cho Trình Diễn, Chấm Điểm & Cloud VM)
 *Sử dụng chế độ này để vận hành mạng lưới đầy đủ 6 dịch vụ hoàn chỉnh kết nối cơ sở dữ liệu PostgreSQL, Airflow và MLflow.*
 
 #### 🚀 **Lệnh Khởi Tạo Sạch 1 Bước (1-Command Clean Slate Deployment)**
-Để triển khai hoặc cài đặt mới lại toàn bộ hệ thống từ đầu trên bất kỳ máy chủ nào (máy tính cá nhân, GCP VM hoặc AWS EC2), chỉ cần chạy lệnh chuỗi sau:
-```bash
-docker compose down -v && \
-docker compose build fastapi && \
-docker compose run --rm fastapi python ml/train_model.py && \
-docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset && \
-docker compose up -d --build && \
-docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
-```
+Để triển khai hoặc cài đặt mới lại toàn bộ hệ thống từ đầu trên bất kỳ máy chủ nào (máy tính cá nhân, GCP VM hoặc AWS EC2):
+
+*   **Dành cho Linux / macOS / Git Bash:**
+    ```bash
+    docker compose down -v && \
+    docker compose build fastapi && \
+    docker compose run --rm fastapi python ml/train_model.py && \
+    docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset && \
+    docker compose up -d --build && \
+    docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
+    ```
+
+*   **Dành cho Windows PowerShell:**
+    ```powershell
+    docker compose down -v; `
+    docker compose build fastapi; `
+    docker compose run --rm fastapi python ml/train_model.py; `
+    docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset; `
+    docker compose up -d --build; `
+    docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
+    ```
 *Lệnh trên tự động thực hiện trong vòng chưa đầy 60 giây:*
 1. Dọn dẹp sạch sẽ các container và ổ đĩa dữ liệu cũ (`down -v`).
 2. Xây dựng Docker images và huấn luyện mô hình ban đầu, đăng ký lên MLflow làm `@champion`.
@@ -199,25 +344,29 @@ docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analy
 5. Kích hoạt mở khóa DAG `daily_sentiment_analysis` trên Airflow để sẵn sàng chạy tự động hàng ngày.
 
 #### 🌐 **Các Địa Chỉ Dịch Vụ Mở Trên Trình Duyệt**
-*   **Bảng Điều Khiển Phân Tích Streamlit:** [http://localhost:8501](http://localhost:8501) *(Kết nối trực tiếp PostgreSQL, thẩm định Active Learning & số liệu vận hành)*
-*   **Giao Diện Điều Phối Airflow:** [http://localhost:8080](http://localhost:8080) *(Tài khoản: `mlops` | Mật khẩu: `mlops`)*
-*   **Trung Tâm Thử Nghiệm MLflow:** [http://localhost:5000](http://localhost:5000) *(Theo dõi experiment `ev-sentiment-analysis` & model `ev-sentiment-model`)*
-*   **API Phục Vụ Dự Đoán FastAPI:** [http://localhost:8000/docs](http://localhost:8000/docs) *(Swagger UI kiểm thử API trực tuyến)*
+*   **Bảng Điều Khiển Phân Tích Streamlit:** `http://<IP_HOẶC_LOCALHOST>:8501` *(Kết nối trực tiếp PostgreSQL, thẩm định Active Learning & số liệu vận hành)*
+*   **Giao Diện Điều Phối Airflow:** `http://<IP_HOẶC_LOCALHOST>:8080` *(Tài khoản: `mlops` | Mật khẩu: `mlops`)*
+*   **Trung Tâm Thử Nghiệm MLflow:** `http://<IP_HOẶC_LOCALHOST>:5000` *(Theo dõi experiment `ev-sentiment-analysis` & model `ev-sentiment-model`)*
+*   **API Phục Vụ Dự Đoán FastAPI:** `http://<IP_HOẶC_LOCALHOST>:8000/docs` *(Swagger UI kiểm thử API trực tuyến)*
 
 #### ⚙️ **Sổ Tay Thao Tác Vận Hành Chuẩn (Operations Playbook)**
-*   **Cập nhật mã nguồn (Không mất dữ liệu):** Khi kéo code mới về, chỉ cần build lại container bị ảnh hưởng mà vẫn giữ nguyên lịch sử PostgreSQL:
+*   **Kịch bản 1: Cập nhật giao diện / fix bug nhẹ (Không mất dữ liệu, giữ nguyên model):**
     ```bash
     git pull && docker compose up -d --build
     ```
-*   **Tạm dừng toàn bộ hệ thống (Bảo lưu dữ liệu):** Tạm dừng an toàn các container nhưng giữ nguyên toàn bộ dữ liệu database:
+*   **Kịch bản 2: Cập nhật mã nguồn có thay đổi Model hoặc Tiền Xử Lý (Giữ nguyên dữ liệu PostgreSQL, retrain Champion mới trên MLflow của VM):**
+    ```bash
+    git pull && docker compose build && docker compose run --rm fastapi python ml/train_model.py && docker compose up -d
+    ```
+*   **Kịch bản 3: Tạm dừng toàn bộ hệ thống (Bảo lưu dữ liệu):**
     ```bash
     docker compose down
     ```
-*   **Khởi động lại hệ thống (Bảo lưu dữ liệu):** Bật lại hệ thống với toàn bộ lịch sử dữ liệu nguyên vẹn:
+*   **Kịch bản 4: Khởi động lại hệ thống (Bảo lưu dữ liệu):**
     ```bash
     docker compose up -d
     ```
-*   **Xóa toàn bộ làm lại từ đầu:** Chỉ cần chạy lại **Lệnh Khởi Tạo Sạch 1 Bước** ở trên.
+*   **Kịch bản 5: Xóa toàn bộ làm lại từ đầu:** Chạy lại **Lệnh Khởi Tạo Sạch 1 Bước** ở trên.
 
 ---
 
@@ -369,6 +518,11 @@ Trong giai đoạn nghiên cứu và đánh giá thực nghiệm, chúng tôi đ
 > - Tích hợp `class_weight='balanced'` và `sublinear_tf=True` với 8,000 n-gram đặc trưng nhằm cân bằng hàm phạt giữa 3 lớp cảm xúc.  
 > - Kết quả kiểm định trên tập Test độc lập: **Accuracy đạt 89.17%**, **Macro-F1 đạt 0.8942**. Tỷ lệ tin cậy thấp (<60%) trên dữ liệu thử nghiệm thực tế giảm mạnh từ 92.3% xuống chỉ còn 46.2%, độ tin cậy trung bình tăng lên **59.3%**, nhận diện chính xác các phản ánh về điều hòa, trạm sạc và trải nghiệm lái.
 
+> **Cập Nhật Đột Phá: Champion v3 (Tích Hợp Tách Từ Ghép Tiếng Việt PyVi):**  
+> Nhằm xử lý dứt điểm các lỗi ngộ nhận ngữ nghĩa của tiếng Việt (như từ ghép *"tiết_kiệm"*, *"sạc_lâu"*, *"không_khí"* bị cắt thành *"không"*, *"quá"*...), Champion v3 tích hợp bộ tách từ ghép `pyvi` trực tiếp vào pipeline trích xuất đặc trưng TF-IDF:  
+> - **Chỉ số trên tập Test độc lập:** **Macro-F1 đạt 0.9080**, **Accuracy đạt 90.45%** (tăng mạnh so với v1: 0.8830 và v2: 0.8942).  
+> - **Độ chính xác thực nghiệm kiểm toán thực tế:** Đạt **95.0% (19/20 câu đúng)** trên tập đánh giá khách hàng thực tế ngẫu nhiên (`2026-09-14T04-10_export.csv`), triệt tiêu hoàn toàn lỗi ngộ nhận phủ định và nhận diện chuẩn xác các mẫu câu phức tạp ("xe không quá rộng", "không khí thoáng đãng", "hệ thống sạc không phải lúc nào cũng nhanh").
+
 
 ---
 
@@ -392,32 +546,6 @@ Chúng tôi chọn **Logistic Regression (`C=2.0, solver='lbfgs'`)** làm mô h�
 *   **Kiểm Định Trên Tập Test Mù:** Mô hình Champion cuối cùng chỉ được chấm điểm đúng một lần duy nhất trên tập Test độc lập chưa từng tham gia quá trình tối ưu để bảo đảm khả năng tổng quát hóa thực tế.
 *   **Phân Tích Ma Trận Nhầm Lẫn (Confusion Matrix):** Sử dụng `ConfusionMatrixDisplay` để nhận diện các điểm nghẽn giữa các lớp. Kết quả cho thấy Logistic Regression phân định ranh giới rất sạch sẽ, đặc biệt là ranh giới khó giữa lớp `Trung tính` và các lớp còn lại.
 *   **Ghi Chép Minh Bạch Trên MLflow:** Toàn bộ siêu tham số, chỉ số đánh giá (Accuracy, Macro-Precision, Macro-Recall, Macro-F1), mã băm dữ liệu huấn luyện và biểu đồ ma trận nhầm lẫn đều được log tự động, bảo đảm tính tái lập 100%.
-
----
-
-## 🛠️ Lập Trình & Kiểm Thử Cục Bộ Offline
-
-Nếu muốn phát triển và kiểm thử toàn bộ ứng dụng trên máy cá nhân mà không cần dùng container Docker, bạn có thể dùng **kịch bản điều phối 1 bước** (`run_local.py`):
-
-### **Cách Khởi Chạy (1 Thao Tác):**
-```bash
-python run_local.py
-```
-*Lệnh này sẽ tự động chạy toàn bộ bài kiểm thử đơn vị `pytest`, khởi động máy chủ phục vụ FastAPI và bật bảng điều khiển tương tác Streamlit cùng một lúc.*
-
-### **Cách Dừng (1 Thao Tác):**
-Chỉ cần nhấn **`[Ctrl + C]`** trong cửa sổ dòng lệnh. Toàn bộ tiến trình sẽ dừng lại an toàn, giải phóng cổng `8000` & `8501`, không để lại bất kỳ tiến trình rác nào chạy ngầm.
-
----
-
-### **Các Lệnh Thành Phần Riêng Lẻ:**
-Nếu cần chạy từng bước trong quy trình bằng tay, hãy đảm bảo bạn đang đứng tại thư mục gốc dự án:
-
-1.  **Nạp & Tạo Dữ Liệu Lịch Sử (Backfill):** `python data/ingest_pipeline.py --backfill` *(Tạo và chấm điểm 25 ngày lịch sử ổn định để thiết lập baseline chuẩn và nạp sẵn dữ liệu cho dashboard)*.
-2.  **Gửi Đánh Giá Xe Điện Mới (Storefront CLI):** `python data/submit_review.py` *(Giao diện dòng lệnh mô phỏng khách hàng gửi đánh giá mới chờ xử lý)*.
-3.  **Huấn Luyện & Tuyển Chọn Champion:** `python ml/train_model.py` *(Quy trình huấn luyện tự động, ghi log lên MLflow và thăng hạng @champion qua Gatekeeper)*.
-4.  **Chạy API Phục Vụ Cục Bộ:** `python api/main.py` *(Khởi chạy FastAPI trên cổng `:8000`)*.
-5.  **Chạy Kiểm Thử Đơn Vị:** `python -m pytest ml/test_pipeline.py` *(Kiểm tra cấu trúc mã nguồn và kiểm định pipeline)*.
 
 ---
 

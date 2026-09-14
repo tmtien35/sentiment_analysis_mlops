@@ -22,6 +22,9 @@ python run_local.py
 *   **Websites to Open:** Dashboard (`http://localhost:8501`), Swagger Docs (`http://localhost:8000/docs`), MLflow (`http://localhost:5000`).
 
 ### **Option B: Google Cloud VM / Containerized Mode (Professional Cloud Demo)**
+*(💡 **Lưu ý**: Nếu bạn thiết lập trên một máy chủ VM hoặc Laptop hoàn toàn mới từ đầu, vui lòng xem mục **"Hướng Dẫn Cài Đặt Ban Đầu Cho Người Mới (Prerequisites)"** trong file `README.md` để cài Docker và Git trước).*
+
+
 Open your GCP SSH Terminal and run this **foolproof 6-step deployment sequence**:
 ```bash
 # 1. Clean up and completely reset any old database volumes
@@ -36,20 +39,14 @@ docker compose run --rm fastapi python ml/train_model.py
 # 4. Pre-populate the 25-day historical database into PostgreSQL (Clean slate backfill)
 docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset
 
-# 5. Start all 6 containers running in the background vĩnh viễn!
+# 5. Start all 6 containers running in the background!
 docker compose up -d --build
 
-# 6. Unpause the Airflow DAG for Automated Ingestion
+# 6. Unpause the Airflow DAG for Automated Daily Ingestion & Scoring
 docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
 ```
 *   **Websites to Open:** Replace `localhost` with your **`IP_Google_Cloud`** (e.g., `http://[IP_Google_Cloud]:8501`, `http://[IP_Google_Cloud]:5000`, `http://[IP_Google_Cloud]:8080`).
-
-⚠️ **IMPORTANT: ACTIVATE THE DAILY SCHEDULER (Airflow DAG)**
-By default, new Airflow DAGs are paused. To ensure that your reviews are automatically processed and scored every single midnight, you must **unpause your DAG**! Run this command once in your GCP SSH Terminal:
-```bash
-docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
-```
-*(You can also activate it by clicking the blue toggle switch next to `daily_sentiment_analysis` inside the Airflow Web UI!)*
+*   *(Note: Step 6 unpauses the Airflow DAG so reviews are automatically processed each midnight. You can also toggle it on/off in the Airflow Web UI at `http://[IP_Google_Cloud]:8080`)*.
 
 ---
 
@@ -178,13 +175,19 @@ Let's simulate a situation where your AI model behaves erratically, and you need
 
 ## 🔄 Presentation Rehearsal & Update Playbook
 
-### **How to Update Code (Zero Data Loss - Standard Update):**
-If you make code or design updates on your laptop, push them to GitHub, and pull them on your Google Cloud VM, simply run this single command. Docker Compose V2 will hot-recreate only the modified container services in 2 seconds while preserving 100% of your persistent PostgreSQL history, predictions, and drift logs:
+### **Case 1: Standard Code/UI Update (Zero Data Loss - No Model Change):**
+If you make code, dashboard, or design updates on your laptop, push them to GitHub, and pull them on your Google Cloud VM, simply run this single command. Docker Compose V2 will hot-recreate only the modified container services in 2 seconds while preserving 100% of your persistent PostgreSQL history, predictions, and drift logs:
 ```bash
 git pull && docker compose up -d --build
 ```
 
-### **How to Completely Reset & Re-rehearse (Wipe Data - Clean Slate):**
+### **Case 2: Model & Preprocessing Update (Update Champion Model in VM MLflow):**
+If your Git commits include changes to model training (`ml/train_model.py`), text segmentation (`ml/preprocess.py` with `pyvi`), or dependencies (`requirements.txt`), run this sequence to rebuild the image and train the new Champion directly into the VM's MLflow store:
+```bash
+git pull && docker compose build && docker compose run --rm fastapi python ml/train_model.py && docker compose up -d
+```
+
+### **Case 3: Complete Reset & Re-rehearse (Wipe Data - Clean Slate):**
 If you want to clear your persistent database (for another presentation or rehearsal) and backfill 25 days of stable historical data from scratch, run:
 ```bash
 # 1. Stop containers and delete PostgreSQL volumes
@@ -199,8 +202,9 @@ docker compose run --rm fastapi python ml/train_model.py
 # 4. Seed 25-day historical backfill into PostgreSQL (Clean slate backfill)
 docker compose run --rm fastapi python data/ingest_pipeline.py --backfill --reset
 
-# 5. Bring serving servers back online
-docker compose up -d --build
+# 5. Bring serving servers back online and unpause DAG
+docker compose up -d --build && \
+docker compose exec airflow-webserver airflow dags unpause daily_sentiment_analysis
 ```
 This is fully idempotent, robust, and can be repeated infinite times!
 
@@ -229,10 +233,11 @@ docker compose exec postgres psql -U mlops -d results_db -c "SELECT * FROM store
 ```
 
 ### **4. Đổi label dự đoán của một dòng X (Update predicted sentiment for audit/correction)**
-Simulate a manual audit correction where a reviewer overrides a predicted sentiment (e.g., writing a human-verified/moderated ground-truth label of `'negative'` for review `user_6ce8dcc9` inside the source table store_reviews):
+Simulate a manual audit correction where a reviewer overrides a predicted sentiment (e.g., writing a human-verified/moderated ground-truth label of `'negative'` for a review inside the source table `store_reviews`):
 ```bash
 docker compose exec postgres psql -U mlops -d results_db -c "UPDATE store_reviews SET verified_sentiment = 'negative' WHERE review_id = 'user_6ce8dcc9';"
 ```
+*(Tip: Replace `'user_6ce8dcc9'` with any `review_id` from Query 1 or 2)*.
 
 ### **5. Xem tổng quan số lượng bản ghi của toàn bộ các bảng (Database Row Counts Overview)**
 Get a quick audit of how many rows exist in each of your 4 tables dynamically:
@@ -244,4 +249,10 @@ docker compose exec postgres psql -U mlops -d results_db -c "SELECT 'store_revie
 Query the latest 5 batch drift executions to audit your PSI and drift trigger logs:
 ```bash
 docker compose exec postgres psql -U mlops -d results_db -c "SELECT * FROM drift_metrics ORDER BY batch_date DESC LIMIT 5;"
+```
+
+### **7. Xem những đánh giá đã được con người duyệt nhãn (Inspect Active Learning Human-Verified Labels)**
+Query reviews that have received human verification / gold-standard labels to be used for continuous retraining:
+```bash
+docker compose exec postgres psql -U mlops -d results_db -c "SELECT review_id, review_date, category, LEFT(review_text, 40) as review_text, verified_sentiment FROM store_reviews WHERE verified_sentiment IS NOT NULL ORDER BY review_date DESC;"
 ```

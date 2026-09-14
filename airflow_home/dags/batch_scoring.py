@@ -7,6 +7,91 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 
+def load_dotenv_config():
+    """Load key-value pairs from .env file into os.environ if not already defined."""
+    candidate_paths = [
+        os.path.join(project_root, ".env"),
+        os.path.join(os.getcwd(), ".env"),
+        ".env"
+    ]
+    for p in candidate_paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k, v = k.strip(), v.strip()
+                            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                                v = v[1:-1]
+                            if k not in os.environ:
+                                os.environ[k] = v
+                break
+            except Exception:
+                pass
+
+
+def send_drift_email(subject: str, html_body: str, ds: str = None) -> bool:
+    """Send real-time alert email via Gmail SMTP with dual-port fallback (587 STARTTLS -> 465 SSL)."""
+    load_dotenv_config()
+    sender_email = os.environ.get("SMTP_SENDER", "").strip()
+    sender_password = os.environ.get("SMTP_PASSWORD", "").strip()
+    recipient_email = os.environ.get("SMTP_RECIPIENT", sender_email).strip() or "tmtien35@gmail.com"
+
+    if not sender_password or not sender_email:
+        print("ℹ️  [EMAIL ALERT] Real email sending skipped (SMTP_SENDER or SMTP_PASSWORD not configured).")
+        print(" -> To receive real emails in your inbox:")
+        print("    1. Copy .env.example to .env")
+        print("    2. Set SMTP_SENDER=your_email@gmail.com and SMTP_PASSWORD=your_16_char_app_password")
+        return False
+
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = recipient_email
+    msg.attach(MIMEText(html_body, "html"))
+
+    print(f"📧 [EMAIL ALERT] Attempting to deliver alert email from '{sender_email}' to '{recipient_email}'...")
+
+    # Method 1: Try Port 587 (TLS / STARTTLS)
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipient_email, msg.as_string())
+        print(f"✅ [EMAIL ALERT] Alert email successfully delivered to '{recipient_email}' via Gmail Port 587 (STARTTLS)!")
+        return True
+    except smtplib.SMTPAuthenticationError as auth_err:
+        print(f"❌ [EMAIL AUTH ERROR] Gmail rejected credentials: {auth_err}")
+        print(" -> Note: Regular Gmail passwords are not accepted. Use a 16-character App Password.")
+        print(" -> Generate at: https://myaccount.google.com/apppasswords")
+        return False
+    except Exception as e587:
+        print(f"⚠️ [EMAIL ALERT] Port 587 connection failed ({e587}). Auto-attempting Port 465 (SSL fallback)...")
+
+    # Method 2: Fallback to Port 465 (SSL)
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipient_email, msg.as_string())
+        print(f"✅ [EMAIL ALERT] Alert email successfully delivered to '{recipient_email}' via Gmail Port 465 (SSL)!")
+        return True
+    except smtplib.SMTPAuthenticationError as auth_err:
+        print(f"❌ [EMAIL AUTH ERROR] Gmail rejected credentials on Port 465: {auth_err}")
+        return False
+    except Exception as e465:
+        print(f"❌ [EMAIL ALERT] Both Port 587 and Port 465 connection attempts failed: {e465}")
+        print(" -> Note: If running on a cloud instance, verify outbound internet access to smtp.gmail.com.")
+        return False
+
+
 def get_db_engine():
     return create_engine(os.environ.get("DATABASE_URL", "sqlite:///data/results.db"))
 
@@ -99,35 +184,12 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         with open(fpath, "w", encoding="utf-8") as f: f.write(html)
         print(f"📧 [EMAIL ALERT] Saved HTML email mockup to: {fpath}")
         
-        # Real-time SMTP email sending (using secure starttls)
-        try:
-            import smtplib
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.text import MIMEText
-            
-            sender_email = os.environ.get("SMTP_SENDER", "mlops.alert.system@gmail.com")
-            sender_password = os.environ.get("SMTP_PASSWORD")
-            recipient_email = "tmtien35@gmail.com"
-            
-            if sender_password:
-                print(f"📧 [EMAIL] Attempting to send real email alert to {recipient_email}...")
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = f"🚨 MLOps Alert: Data Drift Detected on {ds}!"
-                msg["From"] = sender_email
-                msg["To"] = recipient_email
-                msg.attach(MIMEText(html, "html"))
-                
-                with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
-                    server.starttls()
-                    server.login(sender_email, sender_password)
-                    server.sendmail(sender_email, recipient_email, msg.as_string())
-                print(f"✅ [EMAIL] Real email alert successfully sent to {recipient_email} via Gmail SMTP!")
-            else:
-                print("ℹ️  [EMAIL] Real email sending skipped (SMTP_PASSWORD environment variable is not set).")
-                print(" -> To receive real emails in your inbox, set the 'SMTP_PASSWORD' environment variable with a Gmail App Password in your Docker environment.")
-        except Exception as e:
-            print(f"⚠️ [EMAIL] Failed to send real email via SMTP: {e}")
-            print(" -> Note: Cloud providers (like GCP/AWS) often block SMTP port 587 by default to prevent spam.")
+        # Real-time SMTP email sending
+        send_drift_email(
+            subject=f"🚨 MLOps Alert: Data Drift Detected on {ds}!",
+            html_body=html,
+            ds=ds
+        )
         
         should_retrain = auto_retrain and (os.environ.get("ENABLE_SELF_HEALING", "true").lower() not in ("0", "false", "no"))
         if should_retrain:
