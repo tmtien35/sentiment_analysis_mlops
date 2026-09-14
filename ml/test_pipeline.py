@@ -7,14 +7,16 @@ def test_clean_text():
     to lowercase, strips HTML tags, and trims excess whitespace.
     """
     raw_text = "<p>I highly recommend this! Excellent quality and super fast shipping.</p>"
-    expected = "i highly recommend this! excellent quality and super fast shipping."
+    expected = "i highly recommend this ! excellent quality and super fast shipping ."
     
     assert clean_text(raw_text) == expected
     
-    # Test handling of Vietnamese Unicode accented text
+    # Test handling of Vietnamese Unicode accented text and compound word tokenization
     vn_text = "Xe chạy rất êm, tăng tốc mượt mà và tiết kiệm điện!"
-    expected_vn = "xe chạy rất êm, tăng tốc mượt mà và tiết kiệm điện!"
+    expected_vn = "xe chạy rất êm , tăng_tốc mượt_mà và tiết_kiệm điện !"
     assert clean_text(vn_text) == expected_vn
+    assert "tăng_tốc" in clean_text(vn_text)
+    assert "tiết_kiệm" in clean_text(vn_text)
     
     # Test handling of empty strings or non-string inputs
     assert clean_text("") == ""
