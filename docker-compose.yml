@@ -3,6 +3,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: postgres_db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: mlops
       POSTGRES_PASSWORD: mlops
@@ -23,6 +24,7 @@ services:
   mlflow:
     build: .
     container_name: mlflow_server
+    restart: unless-stopped
     command: mlflow server --backend-store-uri sqlite:////app/data/mlflow.db --default-artifact-root /app/mlruns --host 0.0.0.0 --port 5000
     ports:
       - "5000:5000"
@@ -36,6 +38,7 @@ services:
   fastapi:
     build: .
     container_name: fastapi_api
+    restart: unless-stopped
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     environment:
       DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
@@ -60,6 +63,7 @@ services:
   streamlit:
     build: .
     container_name: streamlit_dashboard
+    restart: unless-stopped
     command: streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0
     environment:
       DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
@@ -80,9 +84,11 @@ services:
   airflow-webserver:
     build: .
     container_name: airflow_webserver
+    restart: unless-stopped
     command: >
       bash -c "airflow db init && 
       airflow users create --username mlops --password mlops --firstname MLOps --lastname Student --role Admin --email student@mlops.com && 
+      touch /app/airflow_home/.airflow_initialized && 
       airflow webserver --port 8080"
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
@@ -111,7 +117,10 @@ services:
   airflow-scheduler:
     build: .
     container_name: airflow_scheduler
-    command: airflow scheduler
+    restart: unless-stopped
+    command: >
+      bash -c "while [ ! -f /app/airflow_home/.airflow_initialized ]; do echo 'Waiting for Airflow DB initialization...'; sleep 3; done; 
+      airflow scheduler"
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
