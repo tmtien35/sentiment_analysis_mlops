@@ -439,10 +439,10 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
 *   **Cơ chế thực thi:**
     *   Airflow lập tức khởi tạo một DagRun mới với `logical_date` là ngày hiện tại.
     *   **Task 1 (`crawl_daily_ev_reviews`):** Kiểm tra xem ngày hiện tại đã có đợt crawl nào chưa:
-        *   Nếu chưa có: Bốc 20 review mới từ pool nạp vào `store_reviews` với `is_processed = 0`.
-        *   Nếu ngày hôm nay đã từng crawl: Cơ chế Idempotency kích hoạt, ghi log thông báo và bỏ qua bước insert để bảo vệ cơ sở dữ liệu.
+        *   Nếu ngày chạy chưa có dữ liệu: Bốc 20 review mới từ simulation pool nạp vào `store_reviews` với `is_processed = 0`.
+        *   Nếu ngày hôm nay đã hoàn tất xử lý (ví dụ: kỹ sư hoặc ban giám khảo bấm **Trigger DAG nhiều lần trong cùng một ngày** để thử nghiệm): Hệ thống thông minh tự động **tịnh tiến ngày mô phỏng sang ngày tiếp theo** (`max_date + 1 ngày`) để nạp mẻ 20 review mới, mở rộng dòng thời gian liên tục mà không gây trùng lặp.
     *   **Task 2 (`batch_scoring_and_drift_monitoring`):**
-        *   Tìm tất cả các bản ghi `is_processed = 0` tương ứng ngày chạy và thực hiện toàn bộ quy trình: Preprocess ➔ Suy luận với model Champion ➔ Lưu bảng `predictions` ➔ Tính PSI Drift ➔ Kích hoạt Self-Healing nếu có drift ➔ Lưu bảng `drift_metrics` ➔ Cập nhật `is_processed = 1` ➔ Log MLflow.
+        *   Tự động quét các bản ghi `is_processed = 0` (hỗ trợ cả cơ chế auto-discovery cho mẻ ngày mới tịnh tiến lẫn review do người dùng tự nhập) và thực hiện trọn vẹn chu trình: Preprocess ➔ Suy luận với model Champion ➔ Lưu bảng `predictions` ➔ Tính PSI Drift ➔ Kích hoạt Self-Healing nếu có drift ➔ Lưu bảng `drift_metrics` ➔ Cập nhật `is_processed = 1` ➔ Log mẻ chạy mới (`Batch_<date>`) lên MLflow.
         *   *(Lưu ý: Nếu kích hoạt script CLI trực tiếp `python airflow_home/dags/batch_scoring.py` mà không truyền `--date`, pipeline sẽ tự động quét TẤT CẢ các ngày đang tồn đọng `is_processed = 0` trong database và xử lý dứt điểm lần lượt từng ngày).*
 
 ---
