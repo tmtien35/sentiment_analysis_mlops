@@ -350,11 +350,11 @@ else:
             
             col_u1, col_u2, col_u3 = st.columns(3)
             with col_u1:
-                st.metric("🟢 High Confidence", f"{high_cnt:,}", f"{pct_high:.1f}%")
+                st.metric("🟢 High Confidence", f"{high_cnt:,} ({pct_high:.1f}%)")
             with col_u2:
-                st.metric("🟡 Moderate", f"{mod_cnt:,}", f"{pct_mod:.1f}%")
+                st.metric("🟡 Moderate", f"{mod_cnt:,} ({pct_mod:.1f}%)")
             with col_u3:
-                st.metric("🔴 Uncertain (<60%)", f"{low_cnt:,}", f"{pct_low:.1f}%", delta_color="inverse")
+                st.metric("🔴 Uncertain (<60%)", f"{low_cnt:,} ({pct_low:.1f}%)")
             st.info("💡 **MLOps Insight:** Reviews in the **🔴 Low / Uncertain** tier represent candidate samples prioritized for Active Learning human audit.")
 
     st.markdown("---")

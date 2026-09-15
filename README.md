@@ -13,7 +13,7 @@ Sơ đồ bên dưới minh họa quy trình vận hành khép kín từ lúc Ai
 flowchart TD
     A["⏱️ Airflow Scheduler (00:00 / @daily)"] --> B["📥 Task 1: crawl_daily_ev_reviews<br/>- Lấy 20 review mới từ pool mô phỏng<br/>- Phân loại khía cạnh: pin_sac, van_hanh, noi_that, dich_vu<br/>- Lưu store_reviews (is_processed = 0)"]
     B --> C["⚡ Task 2: batch_scoring_and_drift<br/>- Tải @champion từ MLflow Registry<br/>- Dự đoán cảm xúc & độ tự tin<br/>- Lưu bảng predictions<br/>- Tính chỉ số trôi dạt PSI so với Baseline"]
-    C --> D{"🔍 Kiểm tra PSI > 0.2?<br/>(Phát Hiện Data Drift)"}
+    C --> D{"🔍 Kiểm tra PSI ≥ 0.15?<br/>(Phát Hiện Data Drift)"}
     
     D -- "Không (Hệ thống ổn định)" --> END["🏁 Hoàn tất Task 2:<br/>- Ghi drift_metrics vào SQL<br/>- Khóa trạng thái is_processed = 1<br/>- Ghi Run Batch_{ds} lên MLflow"]
     
@@ -54,8 +54,8 @@ flowchart TD
    * Tải mô hình đương kim vô địch **`@champion`** từ MLflow Model Registry (`models:/ev-sentiment-model@champion`).
    * Thực hiện suy luận: Dự đoán nhãn (Positive / Neutral / Negative) cùng xác suất tự tin `confidence` và lưu vào bảng `predictions`.
    * **Kiểm tra trôi dạt (Data Drift):** Tính chỉ số **PSI (Population Stability Index)** giữa phân phối sentiment của ngày hôm nay so với phân phối chuẩn ban đầu.
-     * **Nếu PSI ≤ 0.2 (Không trôi dạt):** Mọi thứ ổn định ➔ Bỏ qua huấn luyện lại ➔ Nhảy thẳng tới bước chốt dữ liệu.
-     * **Nếu PSI > 0.2 (Phát hiện Data Drift):** Tự động kích hoạt cơ chế **Self-Healing Retraining** (gọi lệnh chạy `python ml/train_model.py` với biến môi trường `DRIFT_DATE={{ ds }}`).
+     * **Nếu PSI < 0.15 (Không trôi dạt):** Mọi thứ ổn định ➔ Bỏ qua huấn luyện lại ➔ Nhảy thẳng tới bước chốt dữ liệu.
+     * **Nếu PSI ≥ 0.15 (Phát hiện Data Drift):** Tự động kích hoạt cơ chế **Self-Healing Retraining** (gọi lệnh chạy `python ml/train_model.py` với biến môi trường `DRIFT_DATE={{ ds }}`).
 
 #### Giai Đoạn 2: Huấn Luyện Lại Tự Động (`ml/train_model.py`)
 1. **Chia dữ liệu cố định:** Tải bộ 1,570 đánh giá xe điện chuẩn (`data/ev_reviews_vietnam_1529_cleaned.csv`), dùng hạt giống cố định (`random_state=42`) để tách:
@@ -424,7 +424,7 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
     *   Tải trực tiếp mô hình `@champion` đang phục vụ từ MLflow Model Registry (`models:/ev-sentiment-model@champion`).
     *   Thực hiện suy luận phân loại cảm xúc (Positive / Neutral / Negative) và tính toán độ tự tin `confidence` (từ `predict_proba`), sau đó lưu vào bảng `predictions`.
     *   Tính toán chỉ số trôi dạt dữ liệu **Population Stability Index (PSI)** so với phân phối sentiment chuẩn ban đầu.
-    *   **Khi phát hiện Data Drift (`psi_score > 0.2`):**
+    *   **Khi phát hiện Data Drift (`psi_score >= 0.15`):**
         *   Tạo báo cáo cảnh báo HTML tại `data/alerts/drift_alert_<date>.html`.
         *   Gửi email cảnh báo thời gian thực qua Gmail SMTP (nếu cấu hình `SMTP_PASSWORD`).
         *   **Cơ chế Tự phục hồi (Self-Healing Retraining):** Tự động gọi pipeline `ml/train_model.py`: gộp dữ liệu huấn luyện gốc với các nhãn do con người thẩm định (`verified_sentiment IS NOT NULL`), đào tạo lại các mô hình ứng viên, kiểm định qua **Gatekeeper** đối đầu với champion hiện tại. Nếu mô hình mới vượt trội về Macro-F1, hệ thống lập tức thăng hạng lên `@champion` mới trong MLflow; nếu không đạt, hủy đăng ký và xuất báo cáo sự cố `data/alerts/retrain_failed_*.html`.
@@ -474,7 +474,7 @@ Khi DAG chấm điểm mẻ hàng ngày phát hiện trôi dạt dữ liệu và
 *   **Cách xem:** Đăng nhập bằng `mlops / mlops` ➔ Chọn DAG **`daily_sentiment_analysis`** ➔ Nhấp vào task chấm điểm mẻ đã hoàn tất gần nhất (màu xanh lá) ➔ Chọn tab **`Log`** ở trên cùng. Tại đây, bạn sẽ thấy toàn bộ nhật ký terminal của quá trình huấn luyện lại: từ nạp dữ liệu SQL, cập nhật trọng số TF-IDF, đánh giá Gatekeeper, cho đến lệnh đăng ký phiên bản lên MLflow.
 *   **Kiến trúc 2 Task của DAG:**
     1. **`crawl_daily_ev_reviews`**: Mô phỏng cào dữ liệu xe điện định kỳ. Lấy ngẫu nhiên 20 đánh giá mới không trùng lặp từ pool dữ liệu (`data/ev_feed_simulation_pool.csv`), gắn ngày thực thi hiện tại (`{{ ds }}`), tự động phân loại khía cạnh (`pin_sac`, `van_hanh`, `noi_that`, `dich_vu`), và lưu vào `store_reviews` với cơ chế chống trùng lặp (idempotency).
-    2. **`batch_scoring_and_drift_monitoring`**: Truy vấn các review chưa xử lý (`is_processed = 0`), dự đoán cảm xúc bằng mô hình `@champion` đang hoạt động, tính toán chỉ số trôi dạt PSI, và kích hoạt huấn luyện tự phục hồi nếu vượt ngưỡng 0.2.
+    2. **`batch_scoring_and_drift_monitoring`**: Truy vấn các review chưa xử lý (`is_processed = 0`), dự đoán cảm xúc bằng mô hình `@champion` đang hoạt động, tính toán chỉ số trôi dạt PSI, và kích hoạt huấn luyện tự phục hồi nếu vượt ngưỡng 0.15.
 
 ### **2. Nhật Ký Huấn Luyện Lại Thủ Công (Streamlit Container)**
 Khi quản trị viên kích hoạt huấn luyện lại thủ công bằng cách bấm nút **`Trigger Retrain Manual`** trên sidebar của Streamlit, kịch bản sẽ chạy bên trong container Streamlit.
@@ -598,7 +598,7 @@ Không dừng lại ở việc phát hiện trôi dạt dữ liệu cơ bản nh
 *   **Tách Từ Ghép Tiếng Việt Chuẩn Ngữ Nghĩa (PyVi Vietnamese Word Segmentation):** Tích hợp bộ tách từ chuyên dụng `pyvi` vào tiền xử lý dùng chung `ml/preprocess.py` cho cả huấn luyện và phục vụ API on-demand. Kỹ thuật này tự động ghép nối các khái niệm xe điện (*"xe_điện", "tiết_kiệm", "sạc_lâu", "không_quá", "giá_bán"*) thành các token ngữ nghĩa đơn nhất, ngăn chặn tình trạng TF-IDF cắt rời từ làm sai lệch ý nghĩa (ví dụ: *"không quá sang trọng"* không còn bị gán nhầm sang tiêu cực), tăng độ chính xác phân loại mà vẫn bảo toàn tốc độ phản hồi cực nhanh (<5ms trên CPU thường).
 *   **Vòng Lặp Phản Hồi Nhãn Vàng & Kiểm Toán Con Người (Active Learning & Human-in-the-Loop Audit):** Người vận hành có thể kiểm toán hàng loạt kết quả dự đoán của mô hình trực tiếp trên giao diện Streamlit bằng bảng tương tác (`st.data_editor`). Tính năng sở hữu **Cơ Chế Mở Khóa Thông Minh (Smart Unlocking)**: bảng thẩm định sẽ tự động mở khi phát hiện cảnh báo drift, khi Gatekeeper chặn thăng hạng mô hình mới, khi còn review thuộc mẻ trôi dạt lịch sử chưa được thẩm định, hoặc thông qua nút gạt quản trị **`🔓 Mở khóa thủ công`**. Cơ chế **Phê Duyệt Hàng Loạt Kèm Hộp Thoại Xác Nhận An Toàn (Safe Bulk Approval Dialog)** hiển thị cảnh báo xác nhận trước khi sao chép toàn bộ dự đoán thành nhãn vàng đã thẩm định, ngăn ngừa triệt để tình trạng bấm nhầm làm sai lệch dữ liệu. Vòng lặp tái huấn luyện (`train_model.py`) tự động quét bảng `store_reviews` tìm các nhãn người duyệt (`verified_sentiment IS NOT NULL`), gộp trực tiếp vào tập Train để mở rộng kho từ vựng thị trường cho mô hình!
 *   **Cầu Dao An Toàn Phục Vụ (Serving Circuit Breaker):** Tích hợp công tắc chuyển mạch khẩn cấp trên sidebar của Streamlit, cho phép lập tức điều hướng lưu lượng FastAPI từ mô hình máy học sang bộ phân loại quy tắc từ khóa (safe-mode rule classifier) khi phát hiện sự cố bất thường trong vận hành, bảo đảm tính liên tục của nghiệp vụ (Zero Downtime).
-*   **Phân Tích Chuyên Sâu Về Sức Khỏe Mô Hình & Độ Bất Định (Uncertainty Analytics):** Bảng điều khiển Streamlit hiển thị 4 biểu đồ MLOps chuyên sâu: (1) **Phân Bổ Cảm Xúc Theo Khía Cạnh Xe** (với bảng màu tương phản giao thông chuẩn: Đỏ `#e74c3c` cho Tiêu cực, Vàng `#f1c40f` cho Trung tính, và Xanh lá `#2ecc71` cho Tích cực), (2) **Độ Tự Tin Trung Bình Theo Từng Lớp Cảm Xúc**, (3) **Phân Tầng Độ Bất Định (Uncertainty Tier Bucketing)** chia làm 3 bậc (Cao ≥80%, Trung bình 60-79%, Thấp <60% để ưu tiên lọc các câu khó cần người thẩm định), và (4) **Chỉ Số Hiệu Chuẩn Tương Đồng Người - AI** (`Human-AI Agreement %`, `Số đánh giá đã duyệt`, `Số đánh giá bị người sửa`).
+*   **Phân Tích Chuyên Sâu Về Sức Khỏe Mô Hình & Độ Bất Định (Uncertainty Analytics):** Bảng điều khiển Streamlit hiển thị 4 biểu đồ MLOps chuyên sâu: (1) **Phân Bổ Cảm Xúc Theo Khía Cạnh Xe** (với bảng màu tương phản giao thông chuẩn: Đỏ `#e74c3c` cho Tiêu cực, Vàng `#f1c40f` cho Trung tính, và Xanh lá `#2ecc71` cho Tích cực), (2) **Độ Tự Tin Trung Bình Theo Từng Lớp Cảm Xúc**, (3) **Phân Tầng Độ Bất Định (Uncertainty Tier Bucketing)** chia làm 3 bậc (Cao ≥80%, Trung bình 60-79%, Thấp <60% hiển thị trực quan định dạng `[Số lượng] ([Tỷ lệ %])` không kèm mũi tên tăng trưởng thừa, giúp người vận hành ưu tiên lọc các câu khó cần người thẩm định), và (4) **Chỉ Số Hiệu Chuẩn Tương Đồng Người - AI** (`Human-AI Agreement %`, `Số đánh giá đã duyệt`, `Số đánh giá bị người sửa`).
 *   **Chuẩn Hóa Baseline & Chốt Chặn Retrain An Toàn:** Quy trình nạp 25 ngày dữ liệu lịch sử (`data/ingest_pipeline.py`) sử dụng tập baseline xe điện Việt Nam đã được hiệu chuẩn cân bằng ($PSI \approx 0.0051 \ll 0.15$), đi kèm cờ chốt an toàn `auto_retrain=False` để tránh kích hoạt retrain ngoài ý muốn trong lúc khởi tạo cơ sở dữ liệu. Bộ gán nhãn dự phòng (retraining fallback pseudo-labeler) tự động nhận diện chính xác các từ vựng chuyên ngành ô tô điện tiếng Việt (*"lỗi", "chậm", "sụt pin", "êm", "tiết kiệm"...*).
 
 ---
