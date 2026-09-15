@@ -50,7 +50,7 @@ def set_setting(conn, key, value):
         print(f"Error setting: {e}")
 
 def render_canary_governance_active(client, engine, df_logs, champion_version, canary_version):
-    st.info(f"🐤 **Canary Routing Active:** Đang điều phối lưu lượng **90% Champion (v{champion_version})** / **10% Canary (v{canary_version})** trên FastAPI.")
+    st.info(f"🐤 **Canary Routing Active:** Routing traffic **90% Champion (v{champion_version})** / **10% Canary (v{canary_version})** via FastAPI.")
     if df_logs is not None and len(df_logs) > 0 and 'model_route' in df_logs.columns:
         c_logs = df_logs[df_logs['model_route'] == 'champion']
         k_logs = df_logs[df_logs['model_route'] == 'canary']
@@ -73,11 +73,11 @@ def render_canary_governance_active(client, engine, df_logs, champion_version, c
             st.metric("🐤 Canary Latency", f"{k_lat:.1f} ms", delta=f"{k_lat - c_lat:+.1f} ms vs Champ", delta_color="inverse")
         if n_k >= 3:
             if k_conf >= 70.0:
-                st.success("✅ **Proxy KPIs Passed:** Mô hình Canary vận hành đạt tiêu chuẩn (Confidence >= 70%, Latency ổn định). Đủ điều kiện thăng hạng!")
+                st.success("✅ **Proxy KPIs Passed:** Canary model meets operational standards (Confidence >= 70%, Latency stable). Ready for promotion!")
             else:
-                st.warning("⚠️ **Proxy KPIs Warning:** Độ tự tin của Canary đang thấp hơn kỳ vọng. Nên kiểm tra kỹ log trước khi thăng hạng.")
+                st.warning("⚠️ **Proxy KPIs Warning:** Canary confidence is lower than expected. Inspect inference logs before promoting.")
         else:
-            st.caption("ℹ️ *Đang tích lũy thêm dữ liệu inference từ người dùng để đánh giá toàn diện proxy KPIs.*")
+            st.caption("ℹ️ *Accumulating more live inference traffic to comprehensively evaluate proxy KPIs.*")
             
     col_act1, col_act2 = st.columns(2)
     with col_act1:
@@ -97,13 +97,13 @@ def render_canary_governance_active(client, engine, df_logs, champion_version, c
                 except Exception:
                     pass
                 notify_api_reload()
-                st.success(f"🏆 Thăng hạng thành công Version {canary_version} lên @champion (100% lưu lượng)!")
+                st.success(f"🏆 Successfully promoted Version {canary_version} to @champion (100% Traffic)!")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as ex:
-                st.error(f"Lỗi thăng hạng: {ex}")
+                st.error(f"Promotion error: {ex}")
     with col_act2:
-        if st.button("🔙 1-Click Rollback / Hủy Bỏ Canary", key="rollback_canary_main_btn", use_container_width=True):
+        if st.button("🔙 1-Click Rollback / Abort Canary", key="rollback_canary_main_btn", use_container_width=True):
             try:
                 with engine.begin() as conn:
                     set_setting(conn, "canary_enabled", "false")
@@ -114,22 +114,22 @@ def render_canary_governance_active(client, engine, df_logs, champion_version, c
                     pass
                 client.set_model_version_tag(name="ev-sentiment-model", version=canary_version, key="approval_status", value="canary_aborted")
                 notify_api_reload()
-                st.warning(f"🛡️ Đã hủy bỏ Canary Version {canary_version}! 100% lưu lượng đã phục hồi về Champion an toàn.")
+                st.warning(f"🛡️ Canary Version {canary_version} aborted! 100% traffic safely restored to Champion.")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as ex:
-                st.error(f"Lỗi: {ex}")
+                st.error(f"Error: {ex}")
 
 def render_canary_governance_pending(client, engine, champion_version, candidate_version, champ_metrics, cand_metrics):
-    st.warning(f"🎉 **Contender Model Version {candidate_version} ĐÃ VƯỢT QUA Champion trên tập Validation!**")
+    st.warning(f"🎉 **Contender Model Version {candidate_version} OUTPERFORMED Champion on Validation Set!**")
     st.markdown(f"""
     * 🏆 **Champion Macro-F1 (v{champion_version}):** `{champ_metrics.get('macro_f1', 0.0):.4f}`
     * 🥊 **Contender Macro-F1 (v{candidate_version}):** `{cand_metrics.get('macro_f1', 0.0):.4f}` *(+{(cand_metrics.get('macro_f1', 0.0) - champ_metrics.get('macro_f1', 0.0)):.4f})*
-    * 📋 **Chính sách:** Mô hình mới không tự động thăng hạng. Cần Human Approval để mở Canary Routing 10% an toàn.
+    * 📋 **Policy:** New models are not auto-promoted. Human Approval required to safely enable 10% Canary Routing.
     """)
     col_can1, col_can2 = st.columns(2)
     with col_can1:
-        if st.button("✅ Phê Duyệt & Bật Canary (10% Traffic)", key="approve_canary_main_btn", type="primary", use_container_width=True):
+        if st.button("✅ Approve & Enable Canary (10% Traffic)", key="approve_canary_main_btn", type="primary", use_container_width=True):
             try:
                 client.set_registered_model_alias(name="ev-sentiment-model", alias="canary", version=candidate_version)
                 client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="approval_status", value="canary_active")
@@ -138,34 +138,34 @@ def render_canary_governance_pending(client, engine, champion_version, candidate
                     set_setting(conn, "canary_version", candidate_version)
                     set_setting(conn, "canary_traffic_pct", "10")
                 notify_api_reload()
-                st.success(f"🐤 Đã kích hoạt Canary Version {candidate_version} với 10% lưu lượng!")
+                st.success(f"🐤 Activated Canary Version {candidate_version} with 10% traffic!")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as ex:
-                st.error(f"Lỗi: {ex}")
+                st.error(f"Error: {ex}")
     with col_can2:
-        if st.button("❌ Từ Chối Contender", key="reject_contender_main_btn", use_container_width=True):
+        if st.button("❌ Reject Contender", key="reject_contender_main_btn", use_container_width=True):
             try:
                 client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="approval_status", value="rejected_by_human")
                 try:
                     client.delete_registered_model_alias(name="ev-sentiment-model", alias="candidate")
                 except Exception:
                     pass
-                st.info(f"Đã từ chối mô hình Version {candidate_version}.")
+                st.info(f"Rejected model Version {candidate_version}.")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as ex:
-                st.error(f"Lỗi: {ex}")
+                st.error(f"Error: {ex}")
 
 def render_canary_governance(client, engine, df_logs, champion_version, candidate_version, canary_version, has_candidate, has_canary, candidate_status, canary_is_enabled, champ_metrics, cand_metrics):
     st.markdown("---")
-    st.markdown("### 🚦 Phê Duyệt & Điều Phối Canary (Enterprise Governance & Traffic Routing)")
+    st.markdown("### 🚦 Human Approval & Canary Governance (Traffic Routing)")
     if has_canary and canary_is_enabled:
         render_canary_governance_active(client, engine, df_logs, champion_version, canary_version)
     elif has_candidate and candidate_status == "pending_human_approval":
         render_canary_governance_pending(client, engine, champion_version, candidate_version, champ_metrics, cand_metrics)
     else:
-        st.success(f"✅ **Trạng thái phục vụ:** 100% Champion (Version {champion_version}) — Hệ thống vận hành ổn định.")
+        st.success(f"✅ **Serving Status:** 100% Champion (Version {champion_version}) — System running stably.")
 
 
 
@@ -296,16 +296,16 @@ if has_canary and canary_is_enabled:
             except Exception:
                 pass
             notify_api_reload()
-            st.sidebar.success("Đã ngắt Canary!")
+            st.sidebar.success("Canary aborted successfully!")
             st.rerun()
         except Exception as e:
-            st.sidebar.error(f"Lỗi: {e}")
+            st.sidebar.error(f"Error: {e}")
 
 if has_candidate:
-    status_label = "Chờ duyệt Canary" if candidate_status == "pending_human_approval" else "Contender"
+    status_label = "Pending Canary Approval" if candidate_status == "pending_human_approval" else "Contender"
     st.sidebar.markdown(f"🥊 **Contender Model:** `Version {candidate_version}` *({status_label})*")
     
-    with st.sidebar.expander("⚖️ So Sánh Champion vs Contender", expanded=True):
+    with st.sidebar.expander("⚖️ Champion vs Contender Comparison", expanded=True):
         champ_f1 = champ_metrics.get("macro_f1", 0.0)
         cand_f1 = cand_metrics.get("macro_f1", 0.0)
         champ_size = champ_params.get("train_dataset_size", "N/A")
@@ -314,17 +314,17 @@ if has_candidate:
         cand_acc = cand_metrics.get("accuracy", 0.0)
         
         st.markdown(f"""
-        | Chỉ số | 🏆 Champ (v{champion_version}) | 🥊 Contender (v{candidate_version}) |
+        | Metric | 🏆 Champ (v{champion_version}) | 🥊 Contender (v{candidate_version}) |
         | :--- | :---: | :---: |
         | **Macro-F1** | `{champ_f1:.4f}` | `{cand_f1:.4f}` |
         | **Accuracy** | `{champ_acc*100:.1f}%` | `{cand_acc*100:.1f}%` |
-        | **Train Size** | `{champ_size}` mẫu | `{cand_size}` mẫu |
+        | **Train Size** | `{champ_size}` samples | `{cand_size}` samples |
         """)
         
         if candidate_status == "pending_human_approval":
-            st.success("🎉 Contender đã vượt qua Champion! Kéo xuống khu vực Gatekeeper để bật Canary 10%.")
+            st.success("🎉 Contender outperformed Champion! Scroll down to the Gatekeeper section to enable 10% Canary.")
         
-        if st.button("⚠️ Chấp nhận đánh đổi: Ép lên Champion 🏆", key="force_promote_btn", type="primary"):
+        if st.button("⚠️ Break-Glass: Force Promote to Champion 🏆", key="force_promote_btn", type="primary"):
             try:
                 client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=candidate_version)
                 client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="status", value="champion")
@@ -336,12 +336,12 @@ if has_candidate:
                     set_setting(conn, "canary_enabled", "false")
                     set_setting(conn, "canary_version", "")
                 notify_api_reload()
-                st.success(f"Đã ép thăng hạng Version {candidate_version} lên @champion thành công!")
+                st.success(f"Successfully force-promoted Version {candidate_version} to @champion!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Lỗi thăng hạng: {e}")
+                st.error(f"Promotion error: {e}")
 else:
-    st.sidebar.markdown("🥊 **Contender Model:** *None (Hệ thống tối ưu)*")
+    st.sidebar.markdown("🥊 **Contender Model:** *None (System Optimal)*")
 
 st.sidebar.markdown("---")
 
@@ -635,22 +635,22 @@ else:
 
     col_title_space, col_override = st.columns([3, 1])
     with col_override:
-        manual_unlock = st.toggle("🔓 Mở khóa thủ công", value=False, help="Mở khóa bảng thẩm định để xem và gán nhãn cho bất kỳ mẻ dữ liệu nào trong lịch sử kể cả khi hệ thống đang Stable.")
+        manual_unlock = st.toggle("🔓 Manual Override Unlock", value=False, help="Unlock the audit table to inspect and label any historical batch even when the system is Stable.")
 
     is_unlocked = has_gatekeeper_failure or is_drift_active or has_pending_drift_audit or manual_unlock
     
     if not is_unlocked:
         st.success("🔒 **Audit Panel Locked (Healthy)**: The current production champion model is running smoothly, and no unverified drift batches remain. Human intervention is not required at this time.")
-        st.caption("💡 *Mẹo: Nếu muốn chủ động kiểm tra hoặc gán nhãn cho các mẻ dữ liệu trong quá khứ, hãy bật công tắc '🔓 Mở khóa thủ công' ở góc phải trên.*")
+        st.caption("💡 *Tip: To proactively inspect or label historical review batches, toggle '🔓 Manual Override Unlock' in the top right.*")
     else:
         if manual_unlock:
-            st.info("🔓 **Audit Panel Unlocked (Chế độ thủ công)**: Bạn đang kích hoạt chế độ mở khóa thủ công. Bạn có thể tự do lọc và thẩm định bất kỳ mẻ dữ liệu nào trong lịch sử.")
+            st.info("🔓 **Audit Panel Unlocked (Manual Mode)**: Manual override is active. You can freely filter and audit any historical review batch.")
         elif has_gatekeeper_failure:
             st.warning("🔓 **Audit Panel Unlocked (Gatekeeping Failure Detected)**: The last automated model retraining failed the gatekeeper because the candidate's validation score did not beat the champion. Human auditing is required for reviews in the drifted batch!")
         elif is_drift_active:
             st.warning(f"🔓 **Audit Panel Unlocked (Active Data Drift Alert)**: A data drift alert (unmuted) was detected on batch {drift_date_val}! Human operators should audit and label reviews in this drifted batch to ensure retraining is highly accurate.")
         elif has_pending_drift_audit:
-            st.warning(f"🔓 **Audit Panel Unlocked (Dữ liệu Drift lịch sử tồn đọng)**: Phát hiện đợt drift ngày **{', '.join(pending_drift_dates)}** vẫn còn đánh giá chưa được thẩm định! Vui lòng hoàn tất gắn nhãn để cung cấp nhãn vàng cho các đợt Retrain tiếp theo.")
+            st.warning(f"🔓 **Audit Panel Unlocked (Pending Historical Drift Audits)**: Drift detected on date(s) **{', '.join(pending_drift_dates)}** still has unverified reviews. Please complete auditing to provide ground-truth labels for retraining.")
             
         st.markdown("Double-click cells in the **Human Verified Label** column to assign correct ground-truth sentiments in bulk, then click the **Save All Bulk Edits** button!")
         
@@ -753,17 +753,17 @@ else:
                 
                 # Confirmation Dialog for Bulk Approval
                 if hasattr(st, "dialog"):
-                    @st.dialog("⚠️ Xác Nhận Phê Duyệt Hàng Loạt (Bulk Approval)")
+                    @st.dialog("⚠️ Confirm Bulk Approval")
                     def confirm_bulk_approve_dialog(updates_to_run):
-                        st.warning(f"Bạn có chắc chắn muốn phê duyệt **{len(updates_to_run)}** dự đoán AI làm nhãn vàng (Ground Truth) không?")
+                        st.warning(f"Are you sure you want to approve **{len(updates_to_run)}** AI predictions as ground-truth labels?")
                         st.markdown("""
-                        * **Dòng đã chỉnh sửa thủ công:** Giữ nguyên nhãn bạn đã chọn.
-                        * **Dòng còn trống:** Tự động lấy nhãn dự đoán của AI (`predicted_sentiment`).
-                        * **Hệ quả:** Dữ liệu sẽ lưu trực tiếp vào cơ sở dữ liệu (`store_reviews`) để cung cấp nhãn vàng cho các đợt Retrain tiếp theo.
+                        * **Manually edited rows:** Keep the labels you selected.
+                        * **Empty rows:** Automatically take AI predictions (`predicted_sentiment`).
+                        * **Impact:** Saved directly into database (`store_reviews`) to feed future retraining cycles.
                         """)
                         col_d1, col_d2 = st.columns(2)
                         with col_d1:
-                            if st.button("✅ Đồng Ý Phê Duyệt", key="dlg_confirm_bulk", use_container_width=True, type="primary"):
+                            if st.button("✅ Confirm Approval", key="dlg_confirm_bulk", use_container_width=True, type="primary"):
                                 try:
                                     with engine.begin() as conn:
                                         for upd in updates_to_run:
@@ -771,13 +771,13 @@ else:
                                                 text("UPDATE store_reviews SET verified_sentiment = :label WHERE review_id = :id"),
                                                 {"label": upd["label"], "id": upd["id"]}
                                             )
-                                    st.success(f"🎉 Đã phê duyệt và lưu thành công {len(updates_to_run)} bản ghi vào cơ sở dữ liệu!")
+                                    st.success(f"🎉 Successfully approved and saved {len(updates_to_run)} records to the database!")
                                     st.cache_data.clear()
                                     st.rerun()
                                 except Exception as ex:
-                                    st.error(f"Lỗi khi phê duyệt hàng loạt: {ex}")
+                                    st.error(f"Error during bulk approval: {ex}")
                         with col_d2:
-                            if st.button("❌ Hủy Bỏ", key="dlg_cancel_bulk", use_container_width=True):
+                            if st.button("❌ Cancel", key="dlg_cancel_bulk", use_container_width=True):
                                 st.rerun()
 
 
@@ -841,10 +841,10 @@ else:
                 # Fallback inline confirmation for environments without st.dialog
                 if not hasattr(st, "dialog") and "pending_bulk_updates" in st.session_state and st.session_state["pending_bulk_updates"]:
                     pending = st.session_state["pending_bulk_updates"]
-                    st.warning(f"⚠️ **Xác nhận:** Bạn có chắc chắn muốn phê duyệt **{len(pending)}** dự đoán AI làm nhãn vàng không?")
+                    st.warning(f"⚠️ **Confirmation:** Are you sure you want to approve **{len(pending)}** AI predictions as ground-truth labels?")
                     c_f1, c_f2 = st.columns(2)
                     with c_f1:
-                        if st.button("✅ Đồng Ý Phê Duyệt", key="fallback_confirm_bulk", use_container_width=True, type="primary"):
+                        if st.button("✅ Confirm Approval", key="fallback_confirm_bulk", use_container_width=True, type="primary"):
                             try:
                                 with engine.begin() as conn:
                                     for upd in pending:
@@ -853,13 +853,13 @@ else:
                                             {"label": upd["label"], "id": upd["id"]}
                                         )
                                 st.session_state.pop("pending_bulk_updates", None)
-                                st.success(f"🎉 Đã phê duyệt và lưu thành công {len(pending)} bản ghi!")
+                                st.success(f"🎉 Successfully approved and saved {len(pending)} records!")
                                 st.cache_data.clear()
                                 st.rerun()
                             except Exception as ex:
-                                st.error(f"Lỗi: {ex}")
+                                st.error(f"Error: {ex}")
                     with c_f2:
-                        if st.button("❌ Hủy Bỏ", key="fallback_cancel_bulk", use_container_width=True):
+                        if st.button("❌ Cancel", key="fallback_cancel_bulk", use_container_width=True):
                             st.session_state.pop("pending_bulk_updates", None)
                             st.rerun()
             else:

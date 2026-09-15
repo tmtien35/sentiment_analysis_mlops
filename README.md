@@ -88,8 +88,8 @@ flowchart TD
 
 #### Giai Đoạn 3: Phê Duyệt Con Người & Phân Luồng Canary (90/10)
 1. **Giao diện Phê duyệt trên Streamlit:** Khi Candidate đạt chuẩn, bảng điều khiển Streamlit hiển thị thẻ thông báo:
-   * **Nút "✅ Phê duyệt & Bật Canary (10% Traffic)":** Gán alias `@canary`, cập nhật bảng `system_settings` (`canary_enabled = 'true'`), và gửi tín hiệu cho FastAPI nạp mô hình Canary.
-   * **Nút "❌ Từ chối Contender":** Đóng ứng viên nếu có nghi vấn về chất lượng.
+   * **Nút "✅ Approve & Enable Canary (10% Traffic)":** Gán alias `@canary`, cập nhật bảng `system_settings` (`canary_enabled = 'true'`), và gửi tín hiệu cho FastAPI nạp mô hình Canary.
+   * **Nút "❌ Reject Contender":** Đóng ứng viên nếu có nghi vấn về chất lượng.
 2. **Phân Luồng Canary trên FastAPI:**
    * Tự động điều phối ngẫu nhiên: **90% lưu lượng sang Champion** / **10% lưu lượng sang Canary**.
    * Đo lường thời gian đáp ứng `latency_ms` và ghi nhận `model_route` (`champion` hoặc `canary`) vào bảng `inference_logs` theo thời gian thực.
@@ -100,8 +100,8 @@ flowchart TD
    * Độ tự tin trung bình (**Proxy KPI: Average Confidence**).
    * Độ trễ trung bình (**Latency ms**).
 2. **Quyết định vận hành Zero-Downtime:**
-   * **"🚀 1-Click Promote Canary to Champion":** Thăng hạng phiên bản Canary thành Champion chính thức, phục hồi 100% lưu lượng sang mô hình mới.
-   * **"🔙 1-Click Rollback / Hủy Bỏ Canary":** Ngắt Canary ngay lập tức nếu phát hiện chỉ số bất thường, đưa 100% lưu lượng về Champion an toàn.
+   * **"🚀 1-Click Promote Canary to Champion (100% Traffic)":** Thăng hạng phiên bản Canary thành Champion chính thức, phục hồi 100% lưu lượng sang mô hình mới.
+   * **"🔙 1-Click Rollback / Abort Canary":** Ngắt Canary ngay lập tức nếu phát hiện chỉ số bất thường, đưa 100% lưu lượng về Champion an toàn.
 
 #### Giai Đoạn 5: Hoàn Tất Task 2 và Đóng Mẻ Chạy
 1. Task 2 ghi nhận kết quả PSI và trạng thái drift vào bảng SQL `drift_metrics`.
