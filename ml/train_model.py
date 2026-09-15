@@ -147,20 +147,36 @@ def main():
         except Exception as e:
             print(f" -> No active @champion model found in registry: {e}")
 
+        # Check existing @candidate if any for Smart Reject
+        cand_f1 = 0.0
+        candidate_model_exists = False
+        existing_cand_version = None
+        client = MlflowClient()
+        try:
+            cand_info = client.get_model_version_by_alias("ev-sentiment-model", "candidate")
+            cand_run = client.get_run(cand_info.run_id)
+            cand_f1 = cand_run.data.metrics.get("macro_f1", 0.0)
+            candidate_model_exists = True
+            existing_cand_version = cand_info.version
+            print(f" -> Existing @candidate Validation Macro-F1: {cand_f1:.4f} (v{existing_cand_version})")
+        except Exception:
+            pass
+
         passed_gatekeeper = (not champion_model_exists) or (val_f1 >= champion_f1)
         if not passed_gatekeeper:
             print(f"\n❌ GATEKEEPING BLOCKED AUTO-PROMOTION: New Model F1 ({val_f1:.4f}) < Champion F1 ({champion_f1:.4f}).")
-            print(" -> Registering model as '@candidate' (Contender) for Admin review & scorecard comparison on Streamlit.")
+            rejection_desc = "Preserving existing stronger candidate." if (candidate_model_exists and val_f1 <= cand_f1) else "Assigned as best runner-up contender."
+            print(f" -> {rejection_desc}")
             # Save incident report
-            html = f"""<div style='font-family:Arial;max-width:500px;border:1px solid #ddd;padding:15px;border-radius:8px;'><h2 style='color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;'>❌ GATEKEEPING BLOCKED AUTO-PROMOTION</h2><p>New model did not outperform Champion on fixed validation set.</p><p><b>Champion Macro-F1:</b> <span style='color:#2ecc71;font-weight:bold;'>{champion_f1:.4f}</span></p><p><b>Candidate Macro-F1:</b> <span style='color:#e74c3c;font-weight:bold;'>{val_f1:.4f}</span></p><p><b>Training Dataset Size:</b> {len(train_df)} samples</p><p style='background:#fdf2f2;padding:10px;color:#9b1c1c;'><strong>Serving continues safely on @champion. Candidate model is registered as @candidate for manual Admin review on Streamlit.</strong></p></div>"""
+            html = f"""<div style='font-family:Arial;max-width:500px;border:1px solid #ddd;padding:15px;border-radius:8px;'><h2 style='color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;'>❌ GATEKEEPING REJECTED NEW MODEL</h2><p>New model did not outperform Champion on fixed validation set.</p><p><b>Champion Macro-F1:</b> <span style='color:#2ecc71;font-weight:bold;'>{champion_f1:.4f}</span></p><p><b>Candidate Macro-F1:</b> <span style='color:#e74c3c;font-weight:bold;'>{val_f1:.4f}</span></p><p><b>Training Dataset Size:</b> {len(train_df)} samples</p><p style='background:#fdf2f2;padding:10px;color:#9b1c1c;'><strong>Serving continues safely on @champion. Model rejected or kept as runner-up per Enterprise Governance.</strong></p></div>"""
             path = os.path.join("data", "alerts")
             os.makedirs(path, exist_ok=True)
             fpath = os.path.join(path, f"retrain_failed_{datetime.now().strftime('%Y_%m_%d_%H%M')}.html")
             with open(fpath, "w", encoding="utf-8") as f: f.write(html)
             print(f"📧 [EMAIL ALERT] Saved HTML incident report to: {fpath}")
         else:
-            print(f"\n✅ GATEKEEPING PASSED: New Model F1 ({val_f1:.4f}) >= Champion F1 ({champion_f1:.4f}). Proceeding with registration...")
-            # Clear gatekeeping failure reports since we have successfully passed the gatekeeper
+            print(f"\n✅ GATEKEEPING PASSED: New Model F1 ({val_f1:.4f}) >= Champion F1 ({champion_f1:.4f}).")
+            # Clear gatekeeping failure reports since we have passed the gatekeeper
             import glob
             try:
                 for old_rep in glob.glob(os.path.join("data", "alerts", "retrain_failed_*.html")):
@@ -220,21 +236,47 @@ def main():
     model_name_reg = "ev-sentiment-model"
     model_details = mlflow.register_model(model_uri=model_uri, name=model_name_reg)
     
-    client = MlflowClient()
-    if passed_gatekeeper:
-        # Promote registered model directly to champion
-        print(f"Promoting version {model_details.version} to '@champion'...")
-        client.set_registered_model_alias(name=model_name_reg, alias="champion", version=model_details.version)
-        print(f"🏆 Successfully promoted version {model_details.version} to '@champion'!")
-        try:
-            client.delete_registered_model_alias(name=model_name_reg, alias="candidate")
-        except Exception:
-            pass
+    new_version = model_details.version
+    auto_promote_env = os.environ.get("AUTO_PROMOTE", "false").lower() in ("1", "true", "yes")
+
+    if not champion_model_exists:
+        # Cold start: first model ever trained becomes champion
+        print(f"🏆 Initial baseline model: Promoting version {new_version} directly to '@champion'...")
+        client.set_registered_model_alias(name=model_name_reg, alias="champion", version=new_version)
+        client.set_model_version_tag(name=model_name_reg, version=new_version, key="status", value="champion")
+    elif passed_gatekeeper:
+        if auto_promote_env:
+            print(f"🏆 AUTO_PROMOTE active: Promoting version {new_version} directly to '@champion'...")
+            client.set_registered_model_alias(name=model_name_reg, alias="champion", version=new_version)
+            client.set_model_version_tag(name=model_name_reg, version=new_version, key="status", value="champion")
+            try:
+                client.delete_registered_model_alias(name=model_name_reg, alias="candidate")
+            except Exception:
+                pass
+        else:
+            # ENTERPRISE HUMAN APPROVAL GATEWAY:
+            # Model outperforms Champion, but does NOT auto-promote to production.
+            # It is tagged as 'pending_human_approval' awaiting Admin review on Streamlit.
+            print(f"\n🎉 GATEKEEPER PASSED: New Model (v{new_version}, F1={val_f1:.4f}) beat Champion (F1={champion_f1:.4f})!")
+            print(f"⏸️  [HUMAN APPROVAL GATEWAY] Assigning version {new_version} to '@candidate' with status 'pending_human_approval'.")
+            print(f"    Production serving continues safely on @champion until Admin approves Canary deployment on Streamlit.")
+            client.set_registered_model_alias(name=model_name_reg, alias="candidate", version=new_version)
+            client.set_model_version_tag(name=model_name_reg, version=new_version, key="approval_status", value="pending_human_approval")
+            client.set_model_version_tag(name=model_name_reg, version=new_version, key="gatekeeper_result", value="passed")
     else:
-        # Point 'candidate' alias to registered contender model for admin review
-        print(f"Assigning version {model_details.version} to '@candidate' (Contender)...")
-        client.set_registered_model_alias(name=model_name_reg, alias="candidate", version=model_details.version)
-        print(f"🥊 Version {model_details.version} assigned to '@candidate'. Serving continues on Champion.")
+        # FAILED AGAINST CHAMPION (val_f1 < champion_f1):
+        # SMART REJECT: Do not overwrite a stronger existing candidate!
+        if candidate_model_exists and val_f1 <= cand_f1:
+            print(f"\n❌ [SMART REJECT] Model v{new_version} (F1={val_f1:.4f}) is inferior to existing Candidate v{existing_cand_version} (F1={cand_f1:.4f}).")
+            print(f"   Model v{new_version} rejected. Preserving @candidate alias pointing to superior version {existing_cand_version}.")
+            client.set_model_version_tag(name=model_name_reg, version=new_version, key="approval_status", value="rejected")
+            client.set_model_version_tag(name=model_name_reg, version=new_version, key="gatekeeper_result", value="failed")
+        else:
+            print(f"\n🥊 Model v{new_version} (F1={val_f1:.4f}) did not beat Champion (F1={champion_f1:.4f}), but is the best runner-up contender.")
+            print(f"   Assigning version {new_version} to '@candidate' (Contender).")
+            client.set_registered_model_alias(name=model_name_reg, alias="candidate", version=new_version)
+            client.set_model_version_tag(name=model_name_reg, version=new_version, key="approval_status", value="contender_runner_up")
+            client.set_model_version_tag(name=model_name_reg, version=new_version, key="gatekeeper_result", value="failed")
 
 if __name__ == "__main__":
     main()

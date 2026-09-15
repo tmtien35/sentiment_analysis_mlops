@@ -7,57 +7,69 @@ Hệ thống MLOps hoàn chỉnh, có khả năng tái lập và sẵn sàng tri
 
 ## 🔄 Quy Trình Vận Hành Toàn Diện (End-to-End MLOps Flow & Gatekeeper Logic)
 
-Sơ đồ bên dưới minh họa quy trình vận hành khép kín từ lúc Airflow kích hoạt định kỳ lúc 00:00, cào dữ liệu mới, chấm điểm hàng loạt (batch scoring), kiểm tra trôi dạt dữ liệu (Data Drift PSI), tự động kích hoạt tái huấn luyện (Self-Healing), và cơ chế phân nhánh nghiêm ngặt tại chốt chặn **Gatekeeper**:
+Sơ đồ bên dưới minh họa quy trình vận hành khép kín tiêu chuẩn Enterprise: từ lúc Airflow kích hoạt định kỳ, cào dữ liệu mới, chấm điểm hàng loạt (batch scoring), kiểm tra trôi dạt dữ liệu kéo dài (**Persistent Drift**), tái huấn luyện với cơ chế từ chối thông minh (**Smart Rejection**), chốt chặn phê duyệt con người (**Human Approval Gatekeeper**), phân luồng an toàn (**Canary 90/10**), và quyết định **1-Click Promote / Rollback**:
 
 ```mermaid
 flowchart TD
-    A["⏱️ Airflow Scheduler (00:00 / @daily)"] --> B["📥 Task 1: crawl_daily_ev_reviews<br/>- Lấy 20 review mới từ pool mô phỏng<br/>- Phân loại khía cạnh: pin_sac, van_hanh, noi_that, dich_vu<br/>- Lưu store_reviews (is_processed = 0)"]
-    B --> C["⚡ Task 2: batch_scoring_and_drift<br/>- Tải @champion từ MLflow Registry<br/>- Dự đoán cảm xúc & độ tự tin<br/>- Lưu bảng predictions<br/>- Tính chỉ số trôi dạt PSI so với Baseline"]
+    A["⏱️ Airflow Scheduler (00:00 / @daily)"] --> B["📥 Task 1: crawl_daily_ev_reviews<br/>- Cào 20 review mới<br/>- Phân loại khía cạnh xe điện<br/>- Lưu store_reviews (is_processed = 0)"]
+    B --> C["⚡ Task 2: batch_scoring_and_drift<br/>- Tải @champion từ MLflow Registry<br/>- Dự đoán sentiment & confidence<br/>- Tính chỉ số PSI tích lũy"]
     C --> D{"🔍 Kiểm tra PSI ≥ 0.15?<br/>(Phát Hiện Data Drift)"}
     
     D -- "Không (Hệ thống ổn định)" --> END["🏁 Hoàn tất Task 2:<br/>- Ghi drift_metrics vào SQL<br/>- Khóa trạng thái is_processed = 1<br/>- Ghi Run Batch_{ds} lên MLflow"]
     
-    D -- "Có (Phát hiện Drift!)" --> E["🚨 Kích hoạt Retrain Tự Động:<br/>python ml/train_model.py"]
-    E --> F["🔄 Pipeline Huấn Luyện Lại:<br/>- Nạp nhãn vàng Active Learning từ SQL<br/>- Gộp dữ liệu ngày drift vào tập Train<br/>- Giữ nguyên đề thi độc lập val_df<br/>- Huấn luyện Candidate Model"]
-    F --> G{"🛡️ GATEKEEPER SO SÁNH:<br/>Macro-F1 (New) vs Macro-F1 (Champion)"}
+    D -- "Có (Phát hiện Drift!)" --> CHK_PERSIST{"🚨 Kiểm tra Persistent Drift?<br/>(PSI ≥ 0.25 HOẶC ≥ 2 ngày trôi dạt)"}
     
-    G -- "F1_New >= F1_Champion<br/>(Thắng hoặc Bằng)" --> H["🟢 KỊCH BẢN A: TỰ ĐỘNG THĂNG HẠNG<br/>- Xóa alert sự cố cũ<br/>- Đăng ký New Version lên MLflow<br/>- Gán alias @champion sang bản mới<br/>- FastAPI phục vụ model mới ngay<br/>- Xóa alias @candidate cũ nếu có"]
+    CHK_PERSIST -- "Không (Drift nhất thời - Ngày 1)" --> DEF["ℹ️ Hoãn Retrain (Theo dõi tích lũy):<br/>- Ghi cảnh báo HTML vào data/alerts/<br/>- Giữ an toàn tài nguyên tính toán"] --> END
     
-    G -- "F1_New < F1_Champion<br/>(Kém hơn)" --> I["🔴 KỊCH BẢN B: CHẶN THĂNG HẠNG TỰ ĐỘNG<br/>- Giữ nguyên @champion an toàn để phục vụ<br/>- Đăng ký alias @candidate (Contender) trên MLflow<br/>- Xuất báo cáo sự cố HTML<br/>- Streamlit hiện Scorecard đối đầu<br/>- Admin có quyền bấm Force Promote đánh đổi"]
+    CHK_PERSIST -- "Có (Persistent Drift xác nhận!)" --> E["🚨 Kích hoạt Retrain Tự Động:<br/>python ml/train_model.py"]
+    E --> F["🔄 Pipeline Huấn Luyện Lại:<br/>- Nạp nhãn vàng Active Learning<br/>- Gộp dữ liệu ngày drift vào Train<br/>- Đánh giá trên Validation Set cố định"]
+    F --> G{"🛡️ BETTER THAN PRODUCTION?<br/>Macro-F1 (New) vs Macro-F1 (Champion)"}
     
-    H --> END
-    I --> END
+    G -- "NO (Kém hơn Champion)" --> REJ["❌ SMART REJECTION:<br/>- Không đè lên Candidate mạnh hơn<br/>- Lưu bản runner-up hoặc Rejected<br/>- Ghi nhận alert sự cố HTML"] --> END
+    
+    G -- "YES (Vượt trội Champion)" --> H_APP["⏸️ HUMAN APPROVAL GATEWAY:<br/>- Gán alias @candidate trên MLflow<br/>- Gắn tag: pending_human_approval<br/>- Chờ Admin phê duyệt trên Streamlit"]
+    
+    H_APP --> CAN_DEP["🐤 CANARY ROUTING (90/10):<br/>- Admin bấm 'Phê duyệt & Bật Canary'<br/>- FastAPI chia tải: 90% Champion / 10% Canary<br/>- Ghi nhận latency_ms & model_route"]
+    
+    CAN_DEP --> KPI_MON{"📊 GIÁM SÁT PROXY KPIS:<br/>Confidence & Latency thực tế"}
+    
+    KPI_MON -- "PASS (Đạt chuẩn)" --> PROMOTE["🚀 1-Click Promote to Champion:<br/>- Thăng hạng Canary lên @champion 100%<br/>- Tắt Canary routing an toàn"] --> END
+    
+    KPI_MON -- "FAIL (Bất thường)" --> ROLLBACK["🔙 1-Click Rollback / Abort:<br/>- Ngắt Canary ngay lập tức<br/>- Phục hồi 100% Champion không gián đoạn"] --> END
 
     style A fill:#2c3e50,stroke:#34495e,stroke-width:2px,color:#fff
     style B fill:#2980b9,stroke:#1f618d,stroke-width:2px,color:#fff
     style C fill:#2980b9,stroke:#1f618d,stroke-width:2px,color:#fff
     style D fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
+    style CHK_PERSIST fill:#e67e22,stroke:#d35400,stroke-width:2px,color:#fff
+    style DEF fill:#7f8c8d,stroke:#95a5a6,stroke-width:2px,color:#fff
     style E fill:#e74c3c,stroke:#c0392b,stroke-width:2px,color:#fff
     style F fill:#8e44ad,stroke:#71368a,stroke-width:2px,color:#fff
     style G fill:#d35400,stroke:#ba4a00,stroke-width:2px,color:#fff
-    style H fill:#27ae60,stroke:#1e8449,stroke-width:2px,color:#fff
-    style I fill:#c0392b,stroke:#922b21,stroke-width:2px,color:#fff
+    style REJ fill:#c0392b,stroke:#922b21,stroke-width:2px,color:#fff
+    style H_APP fill:#3498db,stroke:#2980b9,stroke-width:2px,color:#fff
+    style CAN_DEP fill:#f1c40f,stroke:#f39c12,stroke-width:2px,color:#000
+    style KPI_MON fill:#9b59b6,stroke:#8e44ad,stroke-width:2px,color:#fff
+    style PROMOTE fill:#27ae60,stroke:#1e8449,stroke-width:2px,color:#fff
+    style ROLLBACK fill:#c0392b,stroke:#922b21,stroke-width:2px,color:#fff
     style END fill:#16a085,stroke:#117864,stroke-width:2px,color:#fff
 ```
 
 ### 📋 Chi Tiết Từng Giai Đoạn Vận Hành
 
-#### Giai Đoạn 1: Airflow Khởi Chạy DAG (`daily_sentiment_analysis`)
+#### Giai Đoạn 1: Airflow Khởi Chạy DAG & Đánh Giá Persistent Drift
 1. **00:00 Nửa đêm:** Airflow Scheduler tự động kích hoạt DAG với execution date `{{ ds }}` đại diện cho ngày vừa trôi qua.
-2. **Task 1: `crawl_daily_ev_reviews` (Thu thập dữ liệu):**
-   * Lấy **20 đánh giá xe điện mới** từ kho dữ liệu mô phỏng (`data/ev_feed_simulation_pool.csv`).
-   * Phân loại danh mục khía cạnh (`pin_sac`, `van_hanh`, `noi_that`, `dich_vu`).
-   * Ghi 20 dòng này vào bảng cơ sở dữ liệu `store_reviews` với cờ `is_processed = 0` (đánh dấu dữ liệu chưa chấm điểm).
-   * *Bảo vệ Idempotency:* Nếu ngày này đã có dữ liệu trong SQL thì tự động bỏ qua, không ghi đè.
-3. **Task 2: `batch_scoring_and_drift_monitoring` (Chấm điểm & Giám sát):**
-   * Quét bảng `store_reviews` lấy các dòng có `is_processed = 0` của ngày hôm đó.
-   * Tải mô hình đương kim vô địch **`@champion`** từ MLflow Model Registry (`models:/ev-sentiment-model@champion`).
-   * Thực hiện suy luận: Dự đoán nhãn (Positive / Neutral / Negative) cùng xác suất tự tin `confidence` và lưu vào bảng `predictions`.
-   * **Kiểm tra trôi dạt (Data Drift):** Tính chỉ số **PSI (Population Stability Index)** giữa phân phối sentiment của ngày hôm nay so với phân phối chuẩn ban đầu.
-     * **Nếu PSI < 0.15 (Không trôi dạt):** Mọi thứ ổn định ➔ Bỏ qua huấn luyện lại ➔ Nhảy thẳng tới bước chốt dữ liệu.
-     * **Nếu PSI ≥ 0.15 (Phát hiện Data Drift):** Tự động kích hoạt cơ chế **Self-Healing Retraining** (gọi lệnh chạy `python ml/train_model.py` với biến môi trường `DRIFT_DATE={{ ds }}`).
+2. **Task 1: `crawl_daily_ev_reviews`:** Lấy **20 đánh giá xe điện mới** từ kho dữ liệu mô phỏng, phân loại khía cạnh (`pin_sac`, `van_hanh`, `noi_that`, `dich_vu`), và lưu vào `store_reviews` (`is_processed = 0`).
+3. **Task 2: `batch_scoring_and_drift_monitoring`:**
+   * Tải mô hình `@champion` từ MLflow Model Registry, dự đoán sentiment và confidence, lưu bảng `predictions`.
+   * **Kiểm tra trôi dạt (Data Drift PSI):**
+     * **Nếu PSI < 0.15:** Ổn định ➔ Bỏ qua huấn luyện lại ➔ Hoàn tất mẻ chạy.
+     * **Nếu PSI ≥ 0.15:** Đánh giá tính chất **Persistent Drift (Trôi dạt kéo dài)**:
+       * **Quy tắc 1 (Cấp tính):** PSI ≥ 0.25 ➔ Trôi dạt cấp tính nghiêm trọng, kích hoạt huấn luyện lại ngay.
+       * **Quy tắc 2 (Kéo dài):** Truy vấn lịch sử `drift_metrics`. Nếu mẻ liền trước cũng bị drift ➔ Xác nhận trôi dạt kéo dài qua nhiều mẻ, kích hoạt huấn luyện lại.
+       * **Nếu chỉ là Drift đột biến đơn lẻ (Ngày 1 và PSI < 0.25):** Xuất cảnh báo HTML quan sát, **hoãn huấn luyện lại** để tiết kiệm tài nguyên.
 
-#### Giai Đoạn 2: Huấn Luyện Lại Tự Động (`ml/train_model.py`)
+#### Giai Đoạn 2: Huấn Luyện Lại & Chốt Chặn Gatekeeper (Smart Rejection)
 1. **Chia dữ liệu cố định:** Tải bộ 1,570 đánh giá xe điện chuẩn (`data/ev_reviews_vietnam_1529_cleaned.csv`), dùng hạt giống cố định (`random_state=42`) để tách:
    * Tập Train: 80% (1,256 dòng).
    * Tập Validation (`val_df`): 10% (157 dòng) – **đây là đề thi chuẩn độc lập của Gatekeeper**.
@@ -67,28 +79,31 @@ flowchart TD
    * Lấy các review thuộc ngày bị drift, tự động gán nhãn dự phòng.
    * **Gộp toàn bộ dữ liệu mới này vào duy nhất tập Train** (tuyệt đối không làm thay đổi tập `val_df` để chống rò rỉ dữ liệu).
 3. **Huấn luyện mô hình ứng viên (Candidate):** Học lại bộ từ vựng TF-IDF và thuật toán phân loại trên tập Train đã mở rộng.
-4. **Kiểm tra Gatekeeper:**
+4. **Kiểm tra Gatekeeper & Smart Rejection:**
    * Cho mô hình mới dự đoán trên tập `val_df` ➔ Ra điểm `Macro-F1 (New)`.
    * Tải mô hình `@champion` đang phục vụ về, cho dự đoán trên cùng tập `val_df` ➔ Ra điểm `Macro-F1 (Champion)`.
+   * So sánh với `Macro-F1 (Champion)`:
+     * **🔴 KÉM HƠN CHAMPION:** Kích hoạt **Smart Rejection**. So sánh với Candidate đang có: nếu mô hình mới kém hơn Candidate hiện tại, hệ thống từ chối mô hình mới và bảo lưu Candidate mạnh nhất để không làm thụt lùi danh sách ứng viên.
+     * **🟢 VƯỢT TRỘI CHAMPION:** Đăng ký phiên bản mới lên MLflow, gán alias `@candidate` và đánh dấu tag `approval_status = "pending_human_approval"`. Mô hình **không tự động thăng hạng** nhằm đảm bảo an toàn tuyệt đối cho hệ thống phục vụ.
 
-#### Giai Đoạn 3: Rẽ Nhánh Tại Gatekeeper (2 Kịch Bản Phân Nhánh)
-* **🟢 KỊCH BẢN A: Mô hình mới TỐT HƠN hoặc BẰNG (`Macro-F1 New >= Macro-F1 Champion`):**
-  * Xóa các cảnh báo lỗi cũ trong `data/alerts/retrain_failed_*.html`.
-  * Ghi log tham số, Macro-F1, Accuracy, Confusion Matrix lên MLflow Run.
-  * Kiểm tra lần cuối trên tập Test mù độc lập.
-  * Đăng ký phiên bản mới lên MLflow Model Registry và **thăng hạng trực tiếp lên `@champion`**. Xóa tag contender cũ nếu có.
-  * **Tác động:** FastAPI (`:8000`) và đợt batch scoring tiếp theo lập tức phục vụ bằng mô hình mới; Streamlit (`:8501`) cập nhật phiên bản champion ngay lập tức.
-* **🔴 KỊCH BẢN B: Mô hình mới KÉM HƠN (`Macro-F1 New < Macro-F1 Champion`):**
-  * **Chặn tự động thăng hạng:** Không cho đè lên `@champion`. Giữ nguyên Champion cũ đang chạy ổn định để đảm bảo **Zero Downtime & Zero Regression**.
-  * **Đăng ký làm Contender (`@candidate`):** Mô hình mới vẫn được lưu trữ và gắn tag `@candidate` trên MLflow Model Registry để theo dõi và so sánh.
-  * **Xuất báo cáo sự cố:** Tạo file HTML tại `data/alerts/retrain_failed_YYYY_MM_DD_HHMM.html` so sánh trực quan Macro-F1 của 2 mô hình.
-  * **Bảng so sánh & Quyền can thiệp thủ công (Admin Break-Glass Override trên Streamlit):**
-    * Trên thanh Sidebar của Streamlit xuất hiện bảng **Scorecard đối đầu trực tiếp**: So sánh Macro-F1, Accuracy và số lượng mẫu huấn luyện (`train_dataset_size`).
-    * **Nút bấm:** `⚠️ Chấp nhận đánh đổi: Ép lên Champion 🏆`.
-    * **Ý nghĩa nghiệp vụ:** Giúp Admin có thể chủ động chấp nhận đánh đổi (ví dụ: F1 giảm nhẹ 1-2% trên tập val cũ nhưng mô hình đã kịp học thêm 50+ từ vựng xe điện mới phát sinh ngoài thực tế) mà không cần tốn chi phí và thời gian escalate cho Data Scientist can thiệp code.
-  * **Con người can thiệp (Active Learning):** Chuyên gia có thể mở tab Active Learning Audit trên Streamlit để thẩm định và đính chính thêm các nhãn sai, sau đó bấm `Trigger Retrain Manual` khi đã có dữ liệu vàng chuẩn.
+#### Giai Đoạn 3: Phê Duyệt Con Người & Phân Luồng Canary (90/10)
+1. **Giao diện Phê duyệt trên Streamlit:** Khi Candidate đạt chuẩn, bảng điều khiển Streamlit hiển thị thẻ thông báo:
+   * **Nút "✅ Phê duyệt & Bật Canary (10% Traffic)":** Gán alias `@canary`, cập nhật bảng `system_settings` (`canary_enabled = 'true'`), và gửi tín hiệu cho FastAPI nạp mô hình Canary.
+   * **Nút "❌ Từ chối Contender":** Đóng ứng viên nếu có nghi vấn về chất lượng.
+2. **Phân Luồng Canary trên FastAPI:**
+   * Tự động điều phối ngẫu nhiên: **90% lưu lượng sang Champion** / **10% lưu lượng sang Canary**.
+   * Đo lường thời gian đáp ứng `latency_ms` và ghi nhận `model_route` (`champion` hoặc `canary`) vào bảng `inference_logs` theo thời gian thực.
 
-#### Giai Đoạn 4: Hoàn Tất Task 2 và Đóng Mẻ Chạy
+#### Giai Đoạn 4: Giám Sát Proxy KPIs & Quyết Định 1-Click Promote / Rollback
+1. **Bảng Giám sát Operational KPIs trên Streamlit:**
+   * Tỉ lệ chia tải thực tế (% Traffic Share).
+   * Độ tự tin trung bình (**Proxy KPI: Average Confidence**).
+   * Độ trễ trung bình (**Latency ms**).
+2. **Quyết định vận hành Zero-Downtime:**
+   * **"🚀 1-Click Promote Canary to Champion":** Thăng hạng phiên bản Canary thành Champion chính thức, phục hồi 100% lưu lượng sang mô hình mới.
+   * **"🔙 1-Click Rollback / Hủy Bỏ Canary":** Ngắt Canary ngay lập tức nếu phát hiện chỉ số bất thường, đưa 100% lưu lượng về Champion an toàn.
+
+#### Giai Đoạn 5: Hoàn Tất Task 2 và Đóng Mẻ Chạy
 1. Task 2 ghi nhận kết quả PSI và trạng thái drift vào bảng SQL `drift_metrics`.
 2. **Khóa trạng thái (State-Locking):** Chạy `UPDATE store_reviews SET is_processed = 1` cho các đánh giá của ngày đó để chống tính toán trùng lặp.
 3. Ghi log hoàn tất mẻ chạy `Batch_{ds}` lên MLflow và Airflow kết thúc với màu xanh lá (**Success**).
@@ -102,38 +117,38 @@ Hệ thống bao gồm **6 dịch vụ đồng bộ** được điều phối ho
 ```mermaid
 flowchart TB
     subgraph ClientLayer["🌐 Giao Diện Người Dùng & Giám Sát"]
-        UI["🖥️ Streamlit Dashboard<br/>Cổng: 8501<br/>- Giám sát PSI & Cảm xúc thời gian thực<br/>- Active Learning Audit & Gán nhãn vàng<br/>- Model Scorecard & Nút Ép Champion"]
+        UI["🖥️ Streamlit Dashboard<br/>Cổng: 8501<br/>- Giám sát PSI & Phân phối cảm xúc<br/>- Chốt chặn Phê duyệt Con người (Human Approval)<br/>- Giám sát Proxy KPIs & 1-Click Promote / Rollback"]
     end
 
     subgraph ServingLayer["⚡ Tầng Phục Vụ Trực Tuyến"]
-        API["🚀 FastAPI Service<br/>Cổng: 8000<br/>- API suy luận thời gian thực on-demand<br/>- Circuit Breaker chuyển safe-mode khi cần"]
+        API["🚀 FastAPI Service<br/>Cổng: 8000<br/>- API suy luận thời gian thực on-demand<br/>- Phân luồng Canary Routing an toàn (90/10)<br/>- Ghi log latency_ms & model_route"]
     end
 
     subgraph OrchestrationLayer["⏱️ Tầng Điều Phối & Tự Động Hóa"]
         AF_Web["🌐 Airflow Webserver<br/>Cổng: 8080<br/>- Giao diện quản trị đồ thị DAGs"]
-        AF_Sched["⚙️ Airflow Scheduler<br/>- Cào 20 reviews hàng ngày lúc 00:00<br/>- Chấm điểm mẻ (Batch Scoring)<br/>- Tính toán Drift PSI & Kích hoạt Retrain"]
+        AF_Sched["⚙️ Airflow Scheduler<br/>- Cào 20 reviews hàng ngày lúc 00:00<br/>- Chấm điểm mẻ & Persistent Drift PSI<br/>- Tự động gọi Retrain & Smart Rejection"]
     end
 
     subgraph RegistryLayer["📦 Tầng Quản Lý Thử Nghiệm & Mô Hình"]
-        MLFLOW["🧪 MLflow Tracking & Registry<br/>Cổng: 5000<br/>- Lưu log siêu tham số, Macro-F1, Accuracy<br/>- Quản lý định danh alias @champion & @candidate<br/>- Lưu trữ biểu đồ Confusion Matrix"]
+        MLFLOW["🧪 MLflow Tracking & Registry<br/>Cổng: 5000<br/>- Lưu log siêu tham số, Macro-F1, Accuracy<br/>- Quản trị aliases @champion, @candidate, @canary<br/>- Tag trạng thái pending_human_approval"]
     end
 
     subgraph StorageLayer["💾 Tầng Cơ Sở Dữ Liệu"]
-        POSTGRES[("🐘 PostgreSQL Database<br/>Cổng: 5432<br/>- store_reviews (Dữ liệu đánh giá thô)<br/>- predictions (Kết quả dự đoán)<br/>- drift_metrics (Lịch sử PSI)<br/>- inference_logs (Nhật ký API)")]
+        POSTGRES[("🐘 PostgreSQL Database<br/>Cổng: 5432<br/>- store_reviews (Dữ liệu đánh giá thô)<br/>- predictions (Kết quả dự đoán)<br/>- drift_metrics (Lịch sử PSI)<br/>- system_settings (Cờ Canary bật/tắt)<br/>- inference_logs (Model route & Latency)")]
     end
 
     AF_Sched -->|"1. Lưu 20 reviews thô mới"| POSTGRES
     AF_Sched -->|"2. Đọc reviews chưa xử lý (is_processed=0)"| POSTGRES
     AF_Sched -->|"3. Ghi kết quả dự đoán & metrics"| POSTGRES
     AF_Sched -->|"4. Kéo model @champion & Ghi log Batch_{ds}"| MLFLOW
-    AF_Sched -->|"5. Kích hoạt Self-Healing Retraining"| MLFLOW
+    AF_Sched -->|"5. Kích hoạt Persistent Drift Retraining"| MLFLOW
     
-    API -->|"Tải model @champion phục vụ trực tuyến"| MLFLOW
-    API -->|"Ghi nhật ký suy luận thực tế"| POSTGRES
+    API -->|"Nạp model @champion & @canary"| MLFLOW
+    API -->|"Đọc cờ canary_enabled & Ghi log phục vụ"| POSTGRES
 
-    UI -->|"Đọc số liệu & Gán nhãn Active Learning"| POSTGRES
-    UI -->|"Truy vấn Run, Model Registry & Ép Champion"| MLFLOW
-    UI -->|"Gửi request test suy luận trực tiếp"| API
+    UI -->|"Đọc số liệu, cấu hình Canary & Active Learning"| POSTGRES
+    UI -->|"Truy vấn Run, duyệt Candidate, thăng hạng @champion"| MLFLOW
+    UI -->|"Gửi request test suy luận & Canary routing"| API
 
     AF_Web <-->|"Đồng bộ trạng thái điều phối"| AF_Sched
 
@@ -148,12 +163,12 @@ flowchart TB
 
 | Dịch Vụ | Cổng (Port) | Công Nghệ Cốt Lõi | Nhiệm Vụ & Trách Nhiệm Trong Hệ Thống |
 | :--- | :---: | :--- | :--- |
-| **Streamlit Dashboard** | `8501` | Streamlit, Plotly, Pandas | Giám sát trực quan phân phối cảm xúc, biểu đồ PSI trôi dạt, không gian Active Learning Audit thẩm định nhãn, và bảng Scorecard đối đầu Champion vs Contender. |
-| **FastAPI Serving** | `8000` | FastAPI, Pydantic, Uvicorn | Cung cấp RESTful API phân loại cảm xúc thời gian thực (độ trễ < 5ms trên CPU), tích hợp Circuit Breaker an toàn chuyển sang safe-mode khi có biến cố. |
-| **Airflow Scheduler** | Chạy ngầm | Apache Airflow 2.8, Python | Tự động kích hoạt lúc 00:00: cào 20 review, tiền xử lý, suy luận hàng loạt, tính toán PSI drift, và tự động gọi Self-Healing Retrain khi trôi dạt dữ liệu. |
+| **Streamlit Dashboard** | `8501` | Streamlit, Plotly, Pandas | Giám sát phân phối cảm xúc, PSI trôi dạt dữ liệu, Active Learning Audit, **Chốt chặn phê duyệt con người (Human Approval Gatekeeper)**, và **bảng điều khiển Canary Proxy KPIs (1-Click Promote / Rollback)**. |
+| **FastAPI Serving** | `8000` | FastAPI, Pydantic, Uvicorn | Cung cấp RESTful API phân loại cảm xúc thời gian thực (< 5ms), **hỗ trợ phân luồng Canary an toàn (90% Champion / 10% Canary)**, đo lường độ trễ và lưu trữ vết truy vết định tuyến. |
+| **Airflow Scheduler** | Chạy ngầm | Apache Airflow 2.8, Python | Tự động kích hoạt lúc 00:00: cào 20 review, tiền xử lý, suy luận hàng loạt, kiểm tra **Persistent Drift PSI**, và kích hoạt Retrain thông minh với cơ chế **Smart Rejection**. |
 | **Airflow Webserver** | `8080` | Apache Airflow UI, Flask | Cung cấp giao diện quản lý đồ thị DAG, kích hoạt thủ công (`Trigger DAG`), kiểm tra nhật ký chi tiết của từng Task. |
-| **MLflow Registry** | `5000` | MLflow, SQLAlchemy, SQLite | Trung tâm theo dõi thử nghiệm (Experiment Tracking), ghi log metrics/hyperparameters, và quản trị vòng đời mô hình với các alias `@champion` và `@candidate`. |
-| **PostgreSQL Database** | `5432` | PostgreSQL 15 | Cơ sở dữ liệu quan hệ lưu trữ tập trung: đánh giá xe điện (`store_reviews`), dự đoán (`predictions`), chỉ số trôi dạt (`drift_metrics`) và log API (`inference_logs`). |
+| **MLflow Registry** | `5000` | MLflow, SQLAlchemy, SQLite | Trung tâm theo dõi thử nghiệm (Experiment Tracking), ghi log metrics/hyperparameters, và quản trị vòng đời mô hình với các định danh `@champion`, `@candidate`, `@canary` cùng tag phê duyệt. |
+| **PostgreSQL Database** | `5432` | PostgreSQL 15 | Cơ sở dữ liệu quan hệ lưu trữ tập trung: `store_reviews`, `predictions`, `drift_metrics`, `system_settings` (cấu hình Canary) và `inference_logs` (nhật ký định tuyến & latency). |
 
 ---
 
@@ -579,6 +594,38 @@ Chúng tôi chọn **Logistic Regression (`C=2.0, solver='lbfgs'`)** làm mô h�
 
 ---
 
+### ⚙️ Giải Thích Chi Tiết Cấu Hình Siêu Tham Số Trên MLflow (Parameters Deep Dive)
+
+Mô hình Champion (`ml/train_model.py`) được quản trị vòng đời và ghi nhận minh bạch 8 siêu tham số cốt lõi trên MLflow Tracking:
+
+1. **`clf__C = 2.0` (Hệ số điều hòa nghịch đảo):** Điều chỉnh độ nhạy học đặc trưng. Mức `2.0` (so với mặc định `1.0`) giúp mô hình học sâu và mạnh dạn nhận diện các cụm từ cảm xúc đặc thù của xe điện (*"sụt pin", "chậm", "tiết kiệm", "êm ái"*) mà không bị học vẹt (*overfitting*), đưa Macro-F1 đạt đỉnh **0.92**.
+2. **`clf__solver = 'lbfgs'` (Thuật toán tối ưu hóa):** Động cơ giải phương trình vi phân bậc hai (*Limited-memory BFGS*) tiêu chuẩn hàng đầu cho bài toán văn bản nhiều chiều, giúp mô hình hội tụ hoàn hảo và huấn luyện siêu tốc **dưới 0.1 giây trên CPU thường** (phục vụ tự phục hồi Self-Healing).
+3. **`clf__class_weight = 'balanced'` (Cân bằng phân bổ dữ liệu):** Tự động điều chỉnh trọng số phạt nghịch đảo với tần suất xuất hiện của từng lớp. Trong thực tế, đánh giá chê (Negative) ít hơn đánh giá khen, tham số này tăng mức phạt lên gấp 2-3 lần nếu AI đoán sai đánh giá tiêu cực, giúp tối đa hóa khả năng phát hiện lỗi xe hoặc khủng hoảng truyền thông.
+4. **`clf__max_iter = 1000` & `random_state = 42` (Đảm bảo hội tụ & Tái lập 100%):** Cho phép lặp tối đa 1,000 vòng để thuật toán tìm ra điểm tối ưu toàn cục (loại bỏ cảnh báo `ConvergenceWarning`), kết hợp hạt giống cố định `42` giúp kết quả huấn luyện luôn đồng nhất trên mọi máy chủ.
+5. **`tfidf__sublinear_tf = True` (Khử hiện tượng lặp từ quá đà):** Áp dụng thang đo logarit $1 + \log(TF)$ để tính tần suất từ, ngăn chặn hiện tượng khách hàng lặp đi lặp lại một từ tiêu cực làm sai lệch trọng số phân loại tổng thể.
+6. **`tfidf__max_features = 8000` (Kích thước từ điển tinh chọn):** Giữ lại 8,000 cụm từ đơn và cụm từ ghép 2 chữ (n-gram 1-2) có ý nghĩa thông tin cao nhất sau khi lọc qua bộ tách từ PyVi. Giúp mô hình siêu nhẹ (<2 MB) và phản hồi API cực nhanh (<5ms).
+7. **`model_family = 'LogisticRegression'` (Định danh họ mô hình):** Nhãn phân loại kiến trúc giải thuật dùng để đối chiếu bảng thành tích với các ứng viên khác trên MLflow Model Registry.
+8. **`dataset_hashes` & `train_dataset_size` (Dấu vân tay dữ liệu & Quy mô mẫu):** Lưu mã băm bảo mật SHA-256 của các tệp dữ liệu huấn luyện và kích thước tập train (1,256 mẫu gốc, tự động tăng khi có nhãn Active Learning) bảo đảm khả năng kiểm toán nguồn gốc dữ liệu (Data Lineage & Reproducibility).
+
+---
+
+### 📊 Giải Thích Trực Quan Điểm F1-Score & Macro-F1 (Dành Cho Đánh Giá Gatekeeper)
+
+Để hiểu tại sao hệ thống sử dụng **Macro-F1** làm thước đo duy nhất để chốt chặn Gatekeeper thay vì "Độ chính xác" (Accuracy) thông thường:
+
+*   **Tại sao không dùng Độ chính xác thông thường (Accuracy)?**  
+    *   *Ví dụ thực tế:* Nếu showroom có 95 khách tốt và 5 kẻ trộm. Một bảo vệ ngủ gật cả ngày và kết luận *"tất cả đều là khách tốt"* sẽ đạt độ chính xác **95%**, nhưng thực tế là **vô dụng** vì để lọt 100% kẻ trộm.  
+    *   Trong phân tích xe điện, đánh giá chê lỗi pin/hỏng hóc chiếm thiểu số. Nếu AI đoán bừa tất cả là "Tích cực", độ chính xác vẫn cao nhưng doanh nghiệp sẽ sập tiệm vì không nhận biết được khủng hoảng sản phẩm!
+*   **F1-Score là gì?** Là điểm trung bình điều hòa giữa 2 thước đo khắt khe:
+    1.  **Precision (Bắt đúng):** Khi AI báo *"Đây là bài chê"*, thì có đúng khách chê thật không, hay bắt nhầm lời khen?
+    2.  **Recall (Không bỏ sót):** Trong 100 bài khách chê trên mạng, AI có tóm được trọn vẹn không, hay để lọt phân nửa?
+    *   *F1-Score chỉ cao khi mô hình vừa bắt chuẩn, vừa không để lọt lỗi.*
+*   **Macro-F1 (Thước đo công bằng tuyệt đối):**  
+    $$\text{Macro-F1} = \frac{\text{F1}_{\text{Tiêu cực}} + \text{F1}_{\text{Trung tính}} + \text{F1}_{\text{Tích cực}}}{3}$$  
+    Hệ thống tính điểm F1 riêng biệt cho từng lớp rồi chia đều trọng số $1:1:1$. Điều này buộc mô hình ứng viên mới phải xuất sắc ở cả nhóm khó (Tiêu cực & Trung tính) thì mới được **Gatekeeper** cho phép thăng hạng lên `@champion`.
+*   **Ý nghĩa mốc điểm `0.92` (92%) của mô hình dự án:** Thuộc phân khúc xuất sắc cấp công nghiệp (*Production-ready*), chứng minh mô hình phân định chuẩn xác và nhạy bén 92% mọi sắc thái đánh giá xe điện phức tạp của người dùng Việt Nam.
+
+
 ### 🔬 Phương Pháp Luận Thực Nghiệm & Kỹ Thuật Đánh Giá
 
 Để đảm bảo tính khách quan khoa học và triệt tiêu hoàn toàn nguy cơ rò rỉ dữ liệu (data leakage), quy trình thử nghiệm áp dụng các chuẩn mực sau:
@@ -595,6 +642,11 @@ Chúng tôi chọn **Logistic Regression (`C=2.0, solver='lbfgs'`)** làm mô h�
 
 Không dừng lại ở việc phát hiện trôi dạt dữ liệu cơ bản như các đồ án học thuật thông thường, hệ thống được trang bị các tính năng chuyên sâu chuẩn doanh nghiệp:
 
+*   **Kiểm Tra Trôi Dạt Dữ Liệu Bền Vững (Persistent Drift Monitoring):** Thay vì tái huấn luyện ngay khi chỉ có 1 ngày $PSI \ge 0.15$ (dễ dính báo động giả do nhiễu mẫu ngẫu nhiên ngắn hạn), Airflow chỉ kích hoạt Self-Healing khi phát hiện trôi dạt tích lũy kéo dài ($\ge 2$ ngày trôi dạt) hoặc đột biến cực đoan ($PSI \ge 0.25$). Với các đột biến đơn lẻ ngắn hạn, hệ thống xuất cảnh báo theo dõi HTML để tối ưu hóa chi phí tài nguyên máy chủ.
+*   **Cơ Chế Từ Chối Thông Minh (Smart Rejection):** Trong quá trình Gatekeeping, nếu mô hình mới có $F1_{\text{new}} < F1_{\text{champ}}$, hệ thống tự động đối chiếu với Contender hiện tại. Nếu kém hơn Contender đang có, mô hình mới bị từ chối và bảo lưu Candidate mạnh nhất để không làm thụt lùi danh sách ứng viên.
+*   **Chốt Chặn Phê Duyệt Con Người (Human Approval Gatekeeper):** Mô hình mới vượt qua Champion trên tập validation không được phép tự động đẩy lên phục vụ ngay mà chuyển vào trạng thái `pending_human_approval`. Bắt buộc kỹ sư/Admin thẩm định scorecard và bấm phê duyệt có ý thức trên UI trước khi đưa vào thử nghiệm thực tế.
+*   **Phân Luồng Canary An Toàn (FastAPI Canary Traffic Splitting 90/10):** Sau khi được phê duyệt, mô hình mới được gán alias `@canary` và FastAPI tự động điều phối 10% lưu lượng truy vấn thực tế sang Canary, 90% lưu lượng còn lại vẫn do `@champion` xử lý ổn định. Ghi nhận `latency_ms` và nhãn `model_route` vào cơ sở dữ liệu theo thời gian thực.
+*   **Giám Sát Proxy KPIs & Quyết Định 1-Click Promote / Rollback:** Streamlit Dashboard hiển thị bảng đối chiếu thời gian thực giữa Champion và Canary (Tỷ lệ lưu lượng, Độ tự tin trung bình, Độ trễ phản hồi). Người vận hành có toàn quyền bấm **`🚀 1-Click Promote to Champion`** để thăng hạng mô hình an toàn hoặc bấm **`🔙 1-Click Rollback`** để ngắt Canary tức thì nếu phát hiện dấu hiệu bất thường (**Zero Downtime & Zero Regression**).
 *   **Tách Từ Ghép Tiếng Việt Chuẩn Ngữ Nghĩa (PyVi Vietnamese Word Segmentation):** Tích hợp bộ tách từ chuyên dụng `pyvi` vào tiền xử lý dùng chung `ml/preprocess.py` cho cả huấn luyện và phục vụ API on-demand. Kỹ thuật này tự động ghép nối các khái niệm xe điện (*"xe_điện", "tiết_kiệm", "sạc_lâu", "không_quá", "giá_bán"*) thành các token ngữ nghĩa đơn nhất, ngăn chặn tình trạng TF-IDF cắt rời từ làm sai lệch ý nghĩa (ví dụ: *"không quá sang trọng"* không còn bị gán nhầm sang tiêu cực), tăng độ chính xác phân loại mà vẫn bảo toàn tốc độ phản hồi cực nhanh (<5ms trên CPU thường).
 *   **Vòng Lặp Phản Hồi Nhãn Vàng & Kiểm Toán Con Người (Active Learning & Human-in-the-Loop Audit):** Người vận hành có thể kiểm toán hàng loạt kết quả dự đoán của mô hình trực tiếp trên giao diện Streamlit bằng bảng tương tác (`st.data_editor`). Tính năng sở hữu **Cơ Chế Mở Khóa Thông Minh (Smart Unlocking)**: bảng thẩm định sẽ tự động mở khi phát hiện cảnh báo drift, khi Gatekeeper chặn thăng hạng mô hình mới, khi còn review thuộc mẻ trôi dạt lịch sử chưa được thẩm định, hoặc thông qua nút gạt quản trị **`🔓 Mở khóa thủ công`**. Cơ chế **Phê Duyệt Hàng Loạt Kèm Hộp Thoại Xác Nhận An Toàn (Safe Bulk Approval Dialog)** hiển thị cảnh báo xác nhận trước khi sao chép toàn bộ dự đoán thành nhãn vàng đã thẩm định, ngăn ngừa triệt để tình trạng bấm nhầm làm sai lệch dữ liệu. Vòng lặp tái huấn luyện (`train_model.py`) tự động quét bảng `store_reviews` tìm các nhãn người duyệt (`verified_sentiment IS NOT NULL`), gộp trực tiếp vào tập Train để mở rộng kho từ vựng thị trường cho mô hình!
 *   **Cầu Dao An Toàn Phục Vụ (Serving Circuit Breaker):** Tích hợp công tắc chuyển mạch khẩn cấp trên sidebar của Streamlit, cho phép lập tức điều hướng lưu lượng FastAPI từ mô hình máy học sang bộ phân loại quy tắc từ khóa (safe-mode rule classifier) khi phát hiện sự cố bất thường trong vận hành, bảo đảm tính liên tục của nghiệp vụ (Zero Downtime).

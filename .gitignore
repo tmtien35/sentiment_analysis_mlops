@@ -53,4 +53,8 @@ data/incoming/
 docs/
 Docs/
 
+# 📋 Local Planning & Test Cases
+update_plan.md
+testcases.md
+
 

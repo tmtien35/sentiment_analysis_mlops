@@ -185,8 +185,32 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
     drift_detected = bool(psi_score >= 0.15)
     print(f"Cumulative Daily Analysis: Total Reviews = {cumulative_count} | PSI = {psi_score:.4f} | Drift Detected = {drift_detected}")
     
-    if drift_detected: 
-        html = f"""<div style="font-family:Arial;max-width:450px;border:1px solid #ddd;padding:15px;border-radius:8px;"><h2 style="color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;">🚨 DATA DRIFT DETECTED</h2><p>Significant vocabulary shift detected on <b>{ds}</b>.</p><p><b>PSI Score:</b> <span style="color:#e74c3c;font-weight:bold;">{psi_score:.4f}</span> (Threshold: 0.1500)</p><p style="background:#fdf2f2;padding:10px;color:#9b1c1c;"><strong>Retraining triggered automatically in the background.</strong></p><p style="text-align:center;"><a href="http://localhost:8501" style="background:#3498db;color:white;padding:8px 16px;text-decoration:none;font-weight:bold;border-radius:4px;">Open Streamlit</a></p></div>"""
+    # --- CHECK RULES: PERSISTENT DRIFT EVALUATION ---
+    is_persistent_drift = False
+    if drift_detected:
+        if psi_score >= 0.25:
+            is_persistent_drift = True
+            print(f"🚨 [RULE TRIGGER] Acute drift detected with severe PSI={psi_score:.4f} >= 0.25! Persistent drift confirmed immediately.")
+        else:
+            try:
+                with engine.connect() as conn:
+                    res_prior = conn.execute(
+                        text("SELECT drift_detected, psi_score FROM drift_metrics WHERE batch_date < :ds ORDER BY batch_date DESC LIMIT 1"),
+                        {"ds": ds}
+                    )
+                    prior_row = res_prior.fetchone()
+                    if prior_row and prior_row[0] >= 1:
+                        is_persistent_drift = True
+                        print(f"🚨 [RULE TRIGGER] Persistent drift confirmed: Consecutive drift detected across historical batches.")
+                    else:
+                        print(f"ℹ️  [RULE TRIGGER] Isolated single-day drift spike (PSI={psi_score:.4f} < 0.25). Retraining deferred until persistent drift confirmed.")
+            except Exception as e_rule:
+                print(f" -> Error checking prior drift metrics: {e_rule}")
+                is_persistent_drift = True
+
+        status_text = "Persistent Drift Confirmed (>= 2 days or PSI >= 0.25) - Retraining Triggered" if is_persistent_drift else "Isolated Drift Spike (Day 1) - Retraining Deferred"
+        action_text = "Retraining triggered automatically in the background. Serving continues safely on @champion." if is_persistent_drift else "Retraining deferred until persistent drift is confirmed across consecutive days."
+        html = f"""<div style="font-family:Arial;max-width:450px;border:1px solid #ddd;padding:15px;border-radius:8px;"><h2 style="color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;">🚨 DATA DRIFT DETECTED</h2><p>Significant vocabulary shift detected on <b>{ds}</b>.</p><p><b>Status:</b> {status_text}</p><p><b>PSI Score:</b> <span style="color:#e74c3c;font-weight:bold;">{psi_score:.4f}</span> (Threshold: 0.1500)</p><p style="background:#fdf2f2;padding:10px;color:#9b1c1c;"><strong>{action_text}</strong></p><p style="text-align:center;"><a href="http://localhost:8501" style="background:#3498db;color:white;padding:8px 16px;text-decoration:none;font-weight:bold;border-radius:4px;">Open Streamlit</a></p></div>"""
         path = os.path.join("data", "alerts")
         os.makedirs(path, exist_ok=True)
         fpath = os.path.join(path, f"drift_alert_{ds.replace('-', '_')}.html")
@@ -200,18 +224,20 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
             ds=ds
         )
         
-        should_retrain = auto_retrain and (os.environ.get("ENABLE_SELF_HEALING", "true").lower() not in ("0", "false", "no"))
+        should_retrain = is_persistent_drift and auto_retrain and (os.environ.get("ENABLE_SELF_HEALING", "true").lower() not in ("0", "false", "no"))
         if should_retrain:
             import sys, subprocess
-            print("\n🚨 [SELF-HEALING] Data Drift Detected! Triggering automated retraining pipeline...")
+            print("\n🚨 [SELF-HEALING] Persistent Data Drift Confirmed! Triggering automated retraining pipeline...")
             env = os.environ.copy()
             env["PYTHONPATH"] = os.getcwd()
             env["DRIFT_DATE"] = ds
             try:
                 subprocess.run([sys.executable, "ml/train_model.py"], env=env, check=True)
-                print("🚨 [SELF-HEALING] Retraining completed successfully! Model updated to @champion.")
+                print("🚨 [SELF-HEALING] Retraining completed successfully!")
             except Exception as err:
                 print(f"🚨 [SELF-HEALING] Retraining failed: {err}")
+        elif not is_persistent_drift:
+            print(f"ℹ️  [SELF-HEALING] Retraining skipped for {ds}: Isolated drift spike (awaiting persistent drift confirmation).")
         else:
             print(f"ℹ️  [SELF-HEALING] Automated retraining skipped for {ds} (auto_retrain={auto_retrain}, ENABLE_SELF_HEALING={os.environ.get('ENABLE_SELF_HEALING', 'true')}).")
             
@@ -235,6 +261,7 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         mlflow.log_metric("batch_avg_confidence", avg_confidence)
         mlflow.log_metric("batch_psi_score", psi_score)
         mlflow.log_param("batch_drift_flag", str(drift_detected))
+        mlflow.log_param("batch_persistent_drift", str(is_persistent_drift))
         
     print(f"Batch {ds} completed successfully!")
 

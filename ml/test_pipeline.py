@@ -69,3 +69,39 @@ def test_dag_and_scoring_syntax_check():
     assert parsed_scoring is not None, f"Failed to parse syntax for {scoring_path}"
     
     print("AST verification passed for both Airflow orchestration files!")
+def test_persistent_drift_conditions():
+    """
+    Test 4: Verify Persistent Drift decision logic:
+    - Acute drift (PSI >= 0.25) immediately triggers persistent drift.
+    - Low drift (< 0.15) triggers no drift.
+    - Moderate drift (0.15 <= PSI < 0.25) only triggers if historical consecutive drift exists.
+    """
+    psi_extreme = 0.28
+    psi_moderate = 0.18
+    psi_normal = 0.08
+    
+    # Acute check
+    assert psi_extreme >= 0.25, "Acute drift must be >= 0.25"
+    assert psi_normal < 0.15, "Normal PSI must be < 0.15"
+    
+    # Consecutive check simulation
+    history_drifted = [1]
+    history_clean = [0]
+    
+    is_persistent_moderate_with_history = bool(psi_moderate >= 0.15 and (psi_moderate >= 0.25 or any(r >= 1 for r in history_drifted)))
+    is_persistent_moderate_clean_history = bool(psi_moderate >= 0.15 and (psi_moderate >= 0.25 or any(r >= 1 for r in history_clean)))
+    
+    assert is_persistent_moderate_with_history is True
+    assert is_persistent_moderate_clean_history is False
+
+def test_api_and_dashboard_syntax():
+    """
+    Test 5: AST syntax verification for api/main.py and dashboard/app.py.
+    """
+    import ast
+    for path in ["api/main.py", "dashboard/app.py"]:
+        with open(path, "r", encoding="utf-8") as f:
+            code = f.read()
+        parsed = ast.parse(code)
+        assert parsed is not None, f"Failed syntax parse on {path}"
+

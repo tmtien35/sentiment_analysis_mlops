@@ -49,6 +49,126 @@ def set_setting(conn, key, value):
     except Exception as e:
         print(f"Error setting: {e}")
 
+def render_canary_governance_active(client, engine, df_logs, champion_version, canary_version):
+    st.info(f"🐤 **Canary Routing Active:** Đang điều phối lưu lượng **90% Champion (v{champion_version})** / **10% Canary (v{canary_version})** trên FastAPI.")
+    if df_logs is not None and len(df_logs) > 0 and 'model_route' in df_logs.columns:
+        c_logs = df_logs[df_logs['model_route'] == 'champion']
+        k_logs = df_logs[df_logs['model_route'] == 'canary']
+        n_tot = len(df_logs)
+        n_c = len(c_logs)
+        n_k = len(k_logs)
+        c_conf = (c_logs['confidence'].mean() * 100) if n_c > 0 else 0.0
+        k_conf = (k_logs['confidence'].mean() * 100) if n_k > 0 else 0.0
+        c_lat = c_logs['latency_ms'].mean() if (n_c > 0 and 'latency_ms' in c_logs.columns) else 0.0
+        k_lat = k_logs['latency_ms'].mean() if (n_k > 0 and 'latency_ms' in k_logs.columns) else 0.0
+        st.markdown("#### 📊 Operational KPIs: Champion vs Canary (Proxy Monitoring)")
+        col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
+        with col_kpi1:
+            st.metric("🏆 Champion Traffic", f"{n_c:,} reqs", f"{((n_c/n_tot)*100) if n_tot > 0 else 0:.1f}% share")
+        with col_kpi2:
+            st.metric("🐤 Canary Traffic", f"{n_k:,} reqs", f"{((n_k/n_tot)*100) if n_tot > 0 else 0:.1f}% share")
+        with col_kpi3:
+            st.metric("🐤 Canary Confidence", f"{k_conf:.1f}%", delta=f"{k_conf - c_conf:+.1f}% vs Champ")
+        with col_kpi4:
+            st.metric("🐤 Canary Latency", f"{k_lat:.1f} ms", delta=f"{k_lat - c_lat:+.1f} ms vs Champ", delta_color="inverse")
+        if n_k >= 3:
+            if k_conf >= 70.0:
+                st.success("✅ **Proxy KPIs Passed:** Mô hình Canary vận hành đạt tiêu chuẩn (Confidence >= 70%, Latency ổn định). Đủ điều kiện thăng hạng!")
+            else:
+                st.warning("⚠️ **Proxy KPIs Warning:** Độ tự tin của Canary đang thấp hơn kỳ vọng. Nên kiểm tra kỹ log trước khi thăng hạng.")
+        else:
+            st.caption("ℹ️ *Đang tích lũy thêm dữ liệu inference từ người dùng để đánh giá toàn diện proxy KPIs.*")
+            
+    col_act1, col_act2 = st.columns(2)
+    with col_act1:
+        if st.button("🚀 1-Click Promote Canary to Champion (100% Traffic)", key="promote_canary_main_btn", type="primary", use_container_width=True):
+            try:
+                client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=canary_version)
+                client.set_model_version_tag(name="ev-sentiment-model", version=canary_version, key="status", value="champion")
+                with engine.begin() as conn:
+                    set_setting(conn, "canary_enabled", "false")
+                    set_setting(conn, "canary_version", "")
+                try:
+                    client.delete_registered_model_alias(name="ev-sentiment-model", alias="canary")
+                except Exception:
+                    pass
+                try:
+                    client.delete_registered_model_alias(name="ev-sentiment-model", alias="candidate")
+                except Exception:
+                    pass
+                notify_api_reload()
+                st.success(f"🏆 Thăng hạng thành công Version {canary_version} lên @champion (100% lưu lượng)!")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as ex:
+                st.error(f"Lỗi thăng hạng: {ex}")
+    with col_act2:
+        if st.button("🔙 1-Click Rollback / Hủy Bỏ Canary", key="rollback_canary_main_btn", use_container_width=True):
+            try:
+                with engine.begin() as conn:
+                    set_setting(conn, "canary_enabled", "false")
+                    set_setting(conn, "canary_version", "")
+                try:
+                    client.delete_registered_model_alias(name="ev-sentiment-model", alias="canary")
+                except Exception:
+                    pass
+                client.set_model_version_tag(name="ev-sentiment-model", version=canary_version, key="approval_status", value="canary_aborted")
+                notify_api_reload()
+                st.warning(f"🛡️ Đã hủy bỏ Canary Version {canary_version}! 100% lưu lượng đã phục hồi về Champion an toàn.")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as ex:
+                st.error(f"Lỗi: {ex}")
+
+def render_canary_governance_pending(client, engine, champion_version, candidate_version, champ_metrics, cand_metrics):
+    st.warning(f"🎉 **Contender Model Version {candidate_version} ĐÃ VƯỢT QUA Champion trên tập Validation!**")
+    st.markdown(f"""
+    * 🏆 **Champion Macro-F1 (v{champion_version}):** `{champ_metrics.get('macro_f1', 0.0):.4f}`
+    * 🥊 **Contender Macro-F1 (v{candidate_version}):** `{cand_metrics.get('macro_f1', 0.0):.4f}` *(+{(cand_metrics.get('macro_f1', 0.0) - champ_metrics.get('macro_f1', 0.0)):.4f})*
+    * 📋 **Chính sách:** Mô hình mới không tự động thăng hạng. Cần Human Approval để mở Canary Routing 10% an toàn.
+    """)
+    col_can1, col_can2 = st.columns(2)
+    with col_can1:
+        if st.button("✅ Phê Duyệt & Bật Canary (10% Traffic)", key="approve_canary_main_btn", type="primary", use_container_width=True):
+            try:
+                client.set_registered_model_alias(name="ev-sentiment-model", alias="canary", version=candidate_version)
+                client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="approval_status", value="canary_active")
+                with engine.begin() as conn:
+                    set_setting(conn, "canary_enabled", "true")
+                    set_setting(conn, "canary_version", candidate_version)
+                    set_setting(conn, "canary_traffic_pct", "10")
+                notify_api_reload()
+                st.success(f"🐤 Đã kích hoạt Canary Version {candidate_version} với 10% lưu lượng!")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as ex:
+                st.error(f"Lỗi: {ex}")
+    with col_can2:
+        if st.button("❌ Từ Chối Contender", key="reject_contender_main_btn", use_container_width=True):
+            try:
+                client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="approval_status", value="rejected_by_human")
+                try:
+                    client.delete_registered_model_alias(name="ev-sentiment-model", alias="candidate")
+                except Exception:
+                    pass
+                st.info(f"Đã từ chối mô hình Version {candidate_version}.")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as ex:
+                st.error(f"Lỗi: {ex}")
+
+def render_canary_governance(client, engine, df_logs, champion_version, candidate_version, canary_version, has_candidate, has_canary, candidate_status, canary_is_enabled, champ_metrics, cand_metrics):
+    st.markdown("---")
+    st.markdown("### 🚦 Phê Duyệt & Điều Phối Canary (Enterprise Governance & Traffic Routing)")
+    if has_canary and canary_is_enabled:
+        render_canary_governance_active(client, engine, df_logs, champion_version, canary_version)
+    elif has_candidate and candidate_status == "pending_human_approval":
+        render_canary_governance_pending(client, engine, champion_version, candidate_version, champ_metrics, cand_metrics)
+    else:
+        st.success(f"✅ **Trạng thái phục vụ:** 100% Champion (Version {champion_version}) — Hệ thống vận hành ổn định.")
+
+
+
 @st.cache_data(ttl=2)
 def load_data():
     engine = get_db_engine()
@@ -92,11 +212,30 @@ df_preds, df_drift, df_logs, df_audit, error = load_data()
 # Fetch active model versions from MLflow Registry for audit trail
 champion_version = "None"
 candidate_version = "None"
+canary_version = "None"
 has_candidate = False
+has_canary = False
+candidate_status = "contender"
 champ_metrics = {}
 cand_metrics = {}
+canary_metrics = {}
 champ_params = {}
 cand_params = {}
+canary_params = {}
+
+canary_is_enabled = False
+try:
+    with engine.connect() as conn:
+        canary_is_enabled = get_setting(conn, "canary_enabled", "false").lower() == "true"
+except Exception:
+    pass
+
+def notify_api_reload():
+    api_url = os.environ.get("FASTAPI_URL", "http://localhost:8000/predict").replace("/predict", "/reload-models")
+    try:
+        requests.post(api_url, timeout=2)
+    except Exception:
+        pass
 
 try:
     import mlflow
@@ -115,12 +254,25 @@ try:
     except Exception:
         pass
 
+    # Get active @canary version (if any)
+    try:
+        version_info_canary = client.get_model_version_by_alias("ev-sentiment-model", "canary")
+        if version_info_canary and str(version_info_canary.version) != champion_version:
+            canary_version = str(version_info_canary.version)
+            has_canary = True
+            canary_run = client.get_run(version_info_canary.run_id)
+            canary_metrics = canary_run.data.metrics
+            canary_params = canary_run.data.params
+    except Exception:
+        pass
+
     # Get active @candidate version (if any contender exists)
     try:
         version_info_cand = client.get_model_version_by_alias("ev-sentiment-model", "candidate")
         if version_info_cand and str(version_info_cand.version) != champion_version:
             candidate_version = str(version_info_cand.version)
             has_candidate = True
+            candidate_status = version_info_cand.tags.get("approval_status", "contender")
             cand_run = client.get_run(version_info_cand.run_id)
             cand_metrics = cand_run.data.metrics
             cand_params = cand_run.data.params
@@ -132,8 +284,26 @@ except Exception:
 st.sidebar.markdown("### 🏷️ Active Registry Version")
 st.sidebar.markdown(f"🏆 **Champion Model:** `Version {champion_version}`")
 
+if has_canary and canary_is_enabled:
+    st.sidebar.markdown(f"🐤 **Canary Model:** `Version {canary_version}` *(10% Traffic)*")
+    if st.sidebar.button("🔙 Quick Abort Canary", key="quick_abort_canary"):
+        try:
+            with engine.begin() as conn:
+                set_setting(conn, "canary_enabled", "false")
+                set_setting(conn, "canary_version", "")
+            try:
+                client.delete_registered_model_alias(name="ev-sentiment-model", alias="canary")
+            except Exception:
+                pass
+            notify_api_reload()
+            st.sidebar.success("Đã ngắt Canary!")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Lỗi: {e}")
+
 if has_candidate:
-    st.sidebar.markdown(f"🥊 **Contender Model:** `Version {candidate_version}` *(Chờ duyệt)*")
+    status_label = "Chờ duyệt Canary" if candidate_status == "pending_human_approval" else "Contender"
+    st.sidebar.markdown(f"🥊 **Contender Model:** `Version {candidate_version}` *({status_label})*")
     
     with st.sidebar.expander("⚖️ So Sánh Champion vs Contender", expanded=True):
         champ_f1 = champ_metrics.get("macro_f1", 0.0)
@@ -151,15 +321,21 @@ if has_candidate:
         | **Train Size** | `{champ_size}` mẫu | `{cand_size}` mẫu |
         """)
         
-        st.caption("💡 *Contender có thể có F1 thấp hơn trên tập val cũ nhưng đã học thêm dữ liệu mới.*")
+        if candidate_status == "pending_human_approval":
+            st.success("🎉 Contender đã vượt qua Champion! Kéo xuống khu vực Gatekeeper để bật Canary 10%.")
         
         if st.button("⚠️ Chấp nhận đánh đổi: Ép lên Champion 🏆", key="force_promote_btn", type="primary"):
             try:
                 client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=candidate_version)
+                client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="status", value="champion")
                 try:
                     client.delete_registered_model_alias(name="ev-sentiment-model", alias="candidate")
                 except Exception:
                     pass
+                with engine.begin() as conn:
+                    set_setting(conn, "canary_enabled", "false")
+                    set_setting(conn, "canary_version", "")
+                notify_api_reload()
                 st.success(f"Đã ép thăng hạng Version {candidate_version} lên @champion thành công!")
                 st.rerun()
             except Exception as e:
@@ -408,11 +584,19 @@ else:
             height=220
         )
 
+    # Render Enterprise Canary Governance & Approval Panel
+    render_canary_governance(
+        client, engine, df_logs, champion_version, candidate_version, canary_version,
+        has_candidate, has_canary, candidate_status, canary_is_enabled, champ_metrics, cand_metrics
+    )
+
     st.markdown("---")
     st.markdown("### 🖥️ Live API Traffic Monitor (Real-Time Inference Logs)")
     if df_logs is not None and len(df_logs) > 0:
+        cols_to_show = ['timestamp', 'model_route', 'latency_ms', 'review_text', 'predicted_sentiment', 'confidence']
+        avail_cols = [c for c in cols_to_show if c in df_logs.columns]
         st.dataframe(
-            df_logs[['timestamp', 'review_text', 'cleaned_text', 'predicted_sentiment', 'confidence']],
+            df_logs[avail_cols],
             height=200
         )
     else:
