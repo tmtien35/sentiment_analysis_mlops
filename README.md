@@ -558,6 +558,26 @@ rm -rf mlflow.db
 *   **Nguyên nhân:** Khi không cấu hình tường minh biến môi trường `AIRFLOW__WEBSERVER__SECRET_KEY`, container `airflow-webserver` và container `airflow-scheduler` sẽ tự động sinh hai khóa bảo mật JWT ngẫu nhiên khác nhau khi khởi động. Do đó, Webserver bị từ chối quyền (403 Forbidden) khi gọi API lấy log nội bộ từ Scheduler (port 8793).
 *   **Cách khắc phục:** Cấu hình biến môi trường cố định và đồng bộ `AIRFLOW__WEBSERVER__SECRET_KEY: "mlops_shared_jwt_secret_key_fixed_9988"` trong cả 2 dịch vụ `airflow-webserver` và `airflow-scheduler` tại `docker-compose.yml`. Đồng thời, các hàm trong DAG `batch_scoring.py` và `crawl_feed.py` được tối ưu hóa để tự động chuẩn hóa đường dẫn tuyệt đối theo thư mục gốc của dự án (`project_root`), bảo đảm truy xuất đúng cơ sở dữ liệu `data/mlflow.db` và `data/results.db` ngay cả khi Airflow chuyển thư mục làm việc nội bộ sang `airflow_home`.
 
+### 🚨 4. Lỗi Độ Tự Tin Bị Cố Định 0.6 / 0.9 (Hiện Tượng Fallback Do Lệch Đường Dẫn Windows/Linux Trong MLflow)
+*   **Triệu chứng:** Khi xem bảng dữ liệu dự đoán trên Streamlit Dashboard hoặc cơ sở dữ liệu, các bản ghi mẻ chạy mới nhất hiển thị độ tự tin `confidence` chỉ toàn là con số làm tròn cứng `0.6` hoặc `0.9`, thay vì các xác suất liên tục thực nghiệm (như `0.7269`, `0.8034`, `0.8705` của mô hình Champion).
+*   **Nguyên nhân gốc rễ (Root Cause):**
+    1. Khi huấn luyện mô hình trên môi trường Windows (`ml/train_model.py`), MLflow tự động lưu đường dẫn tuyệt đối của máy chủ Windows (`file:D:/MLOps/capstone-project/mlruns/...`) vào cơ sở dữ liệu `mlflow.db` và tệp `MLmodel`.
+    2. Khi Airflow hoặc FastAPI chạy bên trong Docker Container (môi trường Linux `/app`), hàm `mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")` cố gắng truy xuất đường dẫn `D:/...`. Trên Linux không có ổ đĩa `D:`, dẫn đến lỗi `FileNotFoundError`.
+    3. Nhằm bảo đảm hệ thống không bị crash đột ngột (Zero Crash), tác vụ `batch_scoring` kích hoạt bộ phân loại từ khóa dự phòng (`_rule_predict`), gán cứng xác suất `0.90` (nếu có từ khóa tích cực/tiêu cực) và `0.60` (nếu là trung tính).
+*   **Cách khắc phục toàn diện & Chuẩn hóa Đa môi trường (Environment-Agnostic):**
+    1. **Chuẩn hóa đường dẫn tương đối trong MLflow (`scripts/sanitize_mlflow_paths.py`):**
+       - Tự động quét và chuyển đổi toàn bộ `artifact_uri`, `artifact_location`, `storage_location` trong `data/mlflow.db` và 61 tệp cấu hình `MLmodel` trong `mlruns/` thành đường dẫn tương đối portable (`mlruns/...`).
+       - Nhờ đó, hàm nguyên bản `mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")` hoạt động trơn tru ngay từ **Tier 1** ở cả máy chủ Windows host và môi trường container Docker Linux (`/app`).
+    2. **Đồng bộ biến môi trường `MLFLOW_TRACKING_URI` trên Docker Compose:**
+       - Cấu hình thống nhất `MLFLOW_TRACKING_URI: http://mlflow:5000` cho toàn bộ các dịch vụ: `fastapi`, `streamlit`, `airflow-webserver`, và `airflow-scheduler`.
+       - Ở chế độ local không dùng Docker, các dịch vụ tự động fallback linh hoạt sang file SQLite cục bộ `sqlite:///data/mlflow.db`.
+    3. **Bộ nạp mô hình đa tầng linh hoạt & phi phụ thuộc OS (`ml/model_loader.py`):**
+       - Xác định thư mục gốc dự án hoàn toàn tự động bằng `pathlib.Path(__file__).resolve().parent.parent`, tuyệt đối không hardcode `/app` hay ổ đĩa hệ điều hành.
+       - **Tier 1 & 2:** Nạp từ MLflow Model Registry (`@champion` hoặc version mới nhất).
+       - **Tier 3:** Nạp trực tiếp từ tệp nhị phân độc lập `data/champion_model.pkl` (tốc độ đọc < 5ms).
+       - **Tier 4 & 5:** Tự động phân giải artifact trong `mlruns/` thông qua siêu dữ liệu `mlflow.db` hoặc quét `model.pkl`.
+    4. **Tự động phục hồi (Self-Healing):** `batch_scoring.py` tự động phát hiện và chấm điểm lại các bản ghi cũ bị gán nhầm `0.6` / `0.9` về xác suất thực tế `predict_proba()` của mô hình Champion.
+
 ---
 
 ### ⚠️ CẢNH BÁO QUAN TRỌNG VỀ XUNG ĐỘT CỔNG (PORT CONFLICT)

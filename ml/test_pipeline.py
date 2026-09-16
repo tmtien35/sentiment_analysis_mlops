@@ -269,3 +269,42 @@ def test_batch_scoring_cwd_independence():
     finally:
         os.chdir(original_cwd)
 
+
+def test_robust_champion_model_loader_and_continuous_confidences():
+    """
+    Test 10: Verify load_champion_model_robust loads a genuine ML Pipeline with predict_proba
+    and that simulated cross-platform MLflow URI failure gracefully falls back to local artifacts,
+    preventing fallback to static 0.6 / 0.9 confidences.
+    """
+    from ml.model_loader import load_champion_model_robust
+    import ml.model_loader as loader_mod
+    
+    # 1. Normal load
+    model = load_champion_model_robust()
+    assert model is not None, "Champion model must be loadable"
+    assert hasattr(model, "predict_proba"), "Champion model must support predict_proba"
+    
+    test_text = "Xe chạy rất êm, pin trâu, tiết kiệm chi phí"
+    probs = model.predict_proba([test_text])[0]
+    conf = float(max(probs))
+    # Genuine probability should be continuous, not the dummy static values (0.60 or 0.90)
+    assert conf != 0.60 and conf != 0.90, f"Confidence {conf} must be real continuous probability"
+    assert 0.0 < conf <= 1.0
+    
+    # 2. Simulated MLflow failure (mimicking Docker Linux / Windows path mismatch)
+    orig_load = loader_mod.mlflow.sklearn.load_model
+    try:
+        loader_mod.mlflow.sklearn.load_model = lambda *args, **kwargs: (_ for _ in ()).throw(
+            FileNotFoundError("Simulated cross-platform path mismatch: [Errno 2] No such file or directory: 'file:D:/...'")
+        )
+        fallback_model = load_champion_model_robust()
+        assert fallback_model is not None, "Fallback mechanism must load the real model even when MLflow registry path fails"
+        assert hasattr(fallback_model, "predict_proba")
+        
+        fb_probs = fallback_model.predict_proba([test_text])[0]
+        fb_conf = float(max(fb_probs))
+        assert fb_conf != 0.60 and fb_conf != 0.90, f"Fallback confidence {fb_conf} must be real continuous probability"
+        assert abs(fb_conf - conf) < 1e-4, "Fallback model predictions should match original model predictions"
+    finally:
+        loader_mod.mlflow.sklearn.load_model = orig_load
+

@@ -103,8 +103,6 @@ def get_mlflow_tracking_uri():
     env_uri = os.environ.get("MLFLOW_TRACKING_URI")
     if env_uri:
         return env_uri
-    if os.path.exists("/app/data/mlflow.db"):
-        return "sqlite:////app/data/mlflow.db"
     db_path = os.path.join(project_root, "data", "mlflow.db").replace("\\", "/")
     return f"sqlite:///{db_path}"
 
@@ -159,31 +157,8 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
     print(f"Found {pending_count} pending reviews. Starting batch prediction...")
     df_pending['cleaned_text'] = df_pending['review_text'].apply(clean_text)
     
-    tracking_uri = get_mlflow_tracking_uri()
-    mlflow.set_tracking_uri(tracking_uri)
-    print(f"MLflow tracking URI set to: {tracking_uri}")
-    
-    model = None
-    try:
-        model = mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")
-        print("Loaded Champion model from MLflow Registry.")
-    except Exception as e_champ:
-        print(f"Warning: Could not load '@champion' model ({e_champ}). Attempting fallback to latest model version...")
-        try:
-            from mlflow.tracking import MlflowClient
-            client = MlflowClient()
-            versions = client.search_model_versions("name='ev-sentiment-model'")
-            if versions:
-                latest_v = max(int(v.version) for v in versions)
-                print(f"Fallback: Loading latest registered model v{latest_v}...")
-                model = mlflow.sklearn.load_model(f"models:/ev-sentiment-model/{latest_v}")
-                try:
-                    client.set_registered_model_alias("ev-sentiment-model", "champion", str(latest_v))
-                    print(f"Auto-healed '@champion' alias to version {latest_v}.")
-                except Exception:
-                    pass
-        except Exception as e_reg:
-            print(f"Warning: Model registry fallback also failed ({e_reg}).")
+    from ml.model_loader import load_champion_model_robust
+    model = load_champion_model_robust(project_root)
 
     if model is not None:
         df_pending['predicted_sentiment'] = model.predict(df_pending['cleaned_text'])
@@ -191,6 +166,7 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         classes = list(model.classes_)
         confidences = [float(probs[i][classes.index(p)]) for i, p in enumerate(df_pending['predicted_sentiment'])]
         df_pending['confidence'] = confidences
+        print(f"Batch inference complete for {len(df_pending)} records using Champion ML model.")
     else:
         # Fallback to rule classifier if MLflow model cannot be loaded (Zero Crash Guarantee)
         print("Falling back to rule-based classifier for batch scoring...")
@@ -221,6 +197,23 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
                 INSERT INTO predictions (review_id, review_date, category, review_text, cleaned_text, predicted_sentiment, confidence)
                 VALUES (:review_id, :review_date, :category, :review_text, :cleaned_text, :predicted_sentiment, :confidence)
             """), dict(r))
+
+        # Auto-heal legacy dummy predictions (0.6 or 0.9) if real ML model is loaded
+        if model is not None:
+            try:
+                legacy_dummy = conn.execute(text("SELECT review_id, cleaned_text FROM predictions WHERE confidence IN (0.6, 0.9, 0.60, 0.90)")).fetchall()
+                if legacy_dummy:
+                    print(f"🔄 Auto-healing {len(legacy_dummy)} legacy dummy records with genuine model probabilities...")
+                    for lid, ltxt in legacy_dummy:
+                        if not ltxt:
+                            continue
+                        lp = model.predict([ltxt])[0]
+                        lprobs = model.predict_proba([ltxt])[0]
+                        lc = float(lprobs[list(model.classes_).index(lp)])
+                        conn.execute(text("UPDATE predictions SET predicted_sentiment = :p, confidence = :c WHERE review_id = :rid"), {"p": lp, "c": lc, "rid": lid})
+                    print("✅ Legacy predictions successfully auto-healed.")
+            except Exception as e_dummy:
+                print(f"Notice: Legacy dummy auto-heal skipped: {e_dummy}")
 
     # Retrieve ALL predictions for date ds to compute cumulative daily metrics
     with engine.connect() as conn:

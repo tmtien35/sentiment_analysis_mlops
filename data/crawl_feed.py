@@ -66,8 +66,7 @@ def crawl_daily_reviews(ds: str = None, n_reviews: int = 20):
     if not pool_path or not os.path.exists(pool_path):
         candidate_paths = [
             "data/ev_feed_simulation_pool.csv",
-            os.path.join(project_root, "data", "ev_feed_simulation_pool.csv"),
-            "/app/data/ev_feed_simulation_pool.csv"
+            os.path.join(project_root, "data", "ev_feed_simulation_pool.csv")
         ]
         for c in candidate_paths:
             if os.path.exists(c):

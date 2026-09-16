@@ -18,7 +18,8 @@ import mlflow.sklearn
 from mlflow.tracking import MlflowClient
 
 def main():
-    mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///data/mlflow.db")
+    mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment("ev-sentiment-analysis")
     
     # Load Vietnamese EV reviews dataset
@@ -244,11 +245,21 @@ def main():
         print(f"🏆 Initial baseline model: Promoting version {new_version} directly to '@champion'...")
         client.set_registered_model_alias(name=model_name_reg, alias="champion", version=new_version)
         client.set_model_version_tag(name=model_name_reg, version=new_version, key="status", value="champion")
+        try:
+            from ml.model_loader import export_champion_model_artifact
+            export_champion_model_artifact(pipeline)
+        except Exception as e_exp:
+            print(f"Notice: Champion export deferred: {e_exp}")
     elif passed_gatekeeper:
         if auto_promote_env:
             print(f"🏆 AUTO_PROMOTE active: Promoting version {new_version} directly to '@champion'...")
             client.set_registered_model_alias(name=model_name_reg, alias="champion", version=new_version)
             client.set_model_version_tag(name=model_name_reg, version=new_version, key="status", value="champion")
+            try:
+                from ml.model_loader import export_champion_model_artifact
+                export_champion_model_artifact(pipeline)
+            except Exception as e_exp:
+                print(f"Notice: Champion export deferred: {e_exp}")
             try:
                 client.delete_registered_model_alias(name=model_name_reg, alias="candidate")
             except Exception:

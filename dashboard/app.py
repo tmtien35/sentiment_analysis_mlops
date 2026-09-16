@@ -308,7 +308,8 @@ def notify_api_reload():
 try:
     import mlflow
     from mlflow.tracking import MlflowClient
-    mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///data/mlflow.db")
+    mlflow.set_tracking_uri(tracking_uri)
     client = MlflowClient()
     
     # Get active @champion version

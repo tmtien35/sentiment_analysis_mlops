@@ -52,35 +52,21 @@ def get_setting(conn, key, default):
     return row[0] if row else default
 
 def load_serving_models():
-    """Load Champion and Canary (if enabled) models from MLflow Registry with robust fallback."""
+    """Load Champion and Canary (if enabled) models with robust multi-tier cross-platform loader."""
     global champion_model, canary_model, model, canary_version_loaded
-    mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
     engine = get_db_engine()
     
     # 1. Always load Champion
     try:
-        print("Loading registered model '@champion' from MLflow Registry...")
-        champion_model = mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")
+        from ml.model_loader import load_champion_model_robust, load_canary_model_robust
+        champion_model = load_champion_model_robust()
         model = champion_model
-        print("Champion model loaded successfully!")
+        if champion_model is not None:
+            print("Champion model loaded successfully!")
+        else:
+            print("Warning: Could not load Champion model from registry or disk artifacts.")
     except Exception as e:
-        print(f"Warning: Could not load '@champion' alias ({e}). Attempting fallback to latest model version...")
-        try:
-            from mlflow.tracking import MlflowClient
-            client = MlflowClient()
-            versions = client.search_model_versions("name='ev-sentiment-model'")
-            if versions:
-                latest_v = max(int(v.version) for v in versions)
-                print(f"Fallback: Loading latest registered version v{latest_v}...")
-                champion_model = mlflow.sklearn.load_model(f"models:/ev-sentiment-model/{latest_v}")
-                model = champion_model
-                try:
-                    client.set_registered_model_alias("ev-sentiment-model", "champion", str(latest_v))
-                    print(f"Self-healed '@champion' alias to version {latest_v}.")
-                except Exception:
-                    pass
-        except Exception as e_fallback:
-            print(f"Fallback model loading failed: {e_fallback}")
+        print(f"Warning: Exception loading Champion model: {e}")
         
     # 2. Check Canary settings
     canary_enabled = False
@@ -95,14 +81,16 @@ def load_serving_models():
         
     if canary_enabled:
         try:
-            print("Canary routing is ENABLED. Loading Canary model from registry...")
-            if canary_ver:
-                canary_uri = f"models:/ev-sentiment-model/{canary_ver}"
+            print("Canary routing is ENABLED. Loading Canary model...")
+            from ml.model_loader import load_canary_model_robust
+            canary_model = load_canary_model_robust(canary_ver=canary_ver)
+            if canary_model is not None:
+                canary_version_loaded = canary_ver or "canary"
+                print("Canary model loaded successfully!")
             else:
-                canary_uri = "models:/ev-sentiment-model@canary"
-            canary_model = mlflow.sklearn.load_model(canary_uri)
-            canary_version_loaded = canary_ver or "canary"
-            print(f"Canary model ({canary_uri}) loaded successfully!")
+                print("Notice: Canary model not found. Falling back to 100% Champion serving.")
+                canary_model = None
+                canary_version_loaded = None
         except Exception as e:
             print(f"Error loading Canary model: {e}. Falling back to 100% Champion serving.")
             canary_model = None
