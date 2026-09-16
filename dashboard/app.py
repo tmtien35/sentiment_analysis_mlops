@@ -26,9 +26,60 @@ def initialize_settings_table(conn):
     if res.fetchone() is None:
         conn.execute(text("INSERT INTO system_settings VALUES ('serving_mode', 'ml')"))
     
-    # Idempotently add verified_sentiment column if missing
+    # Idempotently add verified_sentiment column to store_reviews if missing
     try:
         conn.execute(text("ALTER TABLE store_reviews ADD COLUMN verified_sentiment TEXT DEFAULT NULL;"))
+    except Exception:
+        pass
+        
+    # Idempotently add verified_sentiment column to inference_logs if missing
+    try:
+        conn.execute(text("ALTER TABLE inference_logs ADD COLUMN verified_sentiment TEXT DEFAULT NULL;"))
+    except Exception:
+        pass
+
+def save_ondemand_review_to_training(conn, log_id, review_text, cleaned_text, predicted_sentiment, confidence, verified_sentiment, timestamp=None):
+    """Save or update an on-demand inference record into store_reviews, predictions, and inference_logs."""
+    if not verified_sentiment:
+        return
+    r_id = f"ondemand_{log_id}"
+    r_date = str(timestamp)[:10] if timestamp else datetime.now().strftime("%Y-%m-%d")
+    r_clean = str(cleaned_text) if cleaned_text else str(review_text)
+    
+    # 1. Update store_reviews (Universal delete + insert)
+    conn.execute(text("DELETE FROM store_reviews WHERE review_id = :review_id"), {"review_id": r_id})
+    conn.execute(text("""
+        INSERT INTO store_reviews (review_id, review_date, category, review_text, is_processed, verified_sentiment)
+        VALUES (:review_id, :review_date, 'on_demand', :review_text, 1, :verified_sentiment)
+    """), {
+        "review_id": r_id,
+        "review_date": r_date,
+        "review_text": str(review_text),
+        "verified_sentiment": str(verified_sentiment)
+    })
+    
+    # 2. Update predictions (Universal delete + insert)
+    conn.execute(text("DELETE FROM predictions WHERE review_id = :review_id"), {"review_id": r_id})
+    conn.execute(text("""
+        INSERT INTO predictions (review_id, review_date, category, review_text, cleaned_text, predicted_sentiment, confidence)
+        VALUES (:review_id, :review_date, 'on_demand', :review_text, :cleaned_text, :predicted_sentiment, :confidence)
+    """), {
+        "review_id": r_id,
+        "review_date": r_date,
+        "review_text": str(review_text),
+        "cleaned_text": r_clean,
+        "predicted_sentiment": str(predicted_sentiment) if predicted_sentiment else 'neutral',
+        "confidence": float(confidence) if confidence is not None else 1.0
+    })
+    
+    # 3. Update inference_logs
+    try:
+        conn.execute(text("""
+            UPDATE inference_logs SET verified_sentiment = :verified_sentiment WHERE id = :log_id
+        """), {
+            "verified_sentiment": str(verified_sentiment),
+            "log_id": int(log_id)
+        })
     except Exception:
         pass
 
@@ -173,11 +224,15 @@ def render_canary_governance(client, engine, df_logs, champion_version, candidat
 def load_data():
     engine = get_db_engine()
     try:
+        with engine.begin() as conn:
+            initialize_settings_table(conn)
         with engine.connect() as conn:
             df_preds = pd.read_sql("SELECT * FROM predictions", con=conn.connection)
             df_drift = pd.read_sql("SELECT * FROM drift_metrics ORDER BY batch_date ASC", con=conn.connection)
             try:
                 df_logs = pd.read_sql("SELECT * FROM inference_logs WHERE review_text != 'init' ORDER BY timestamp DESC", con=conn.connection)
+                if 'verified_sentiment' not in df_logs.columns:
+                    df_logs['verified_sentiment'] = None
             except Exception:
                 df_logs = pd.DataFrame()
             try:
@@ -534,55 +589,15 @@ else:
             st.info("💡 **MLOps Insight:** Reviews in the **🔴 Low / Uncertain** tier represent candidate samples prioritized for Active Learning human audit.")
 
     st.markdown("---")
-    col_test, col_table = st.columns([2, 3])
+    st.markdown("### 🔍 Scored Reviews Explorer (Batch Predictions)")
+    sentiment_filter = st.selectbox("Filter table by predicted sentiment:", ["All", "positive", "neutral", "negative"])
+    filtered_df = df_preds if sentiment_filter == "All" else df_preds[df_preds['predicted_sentiment'] == sentiment_filter]
     
-    with col_test:
-        st.markdown("### ⚡ Live On-Demand Scoring")
-        st.markdown("Test scoring using our real-time **FastAPI endpoint**.")
-        user_input = st.text_area("Enter custom review text to score:", placeholder="Type a review here...")
-        
-        # Check and display previous prediction in session state
-        if "last_prediction" in st.session_state:
-            sent = st.session_state.get("last_sentiment")
-            pred_text = st.session_state.get("last_prediction")
-            if sent == "positive":
-                st.success(pred_text)
-            elif sent == "negative":
-                st.error(pred_text)
-            else:
-                st.warning(pred_text)
-
-        if st.button("Predict Sentiment"):
-            if not user_input.strip():
-                st.warning("Review text cannot be empty!")
-            else:
-                api_url = os.environ.get("FASTAPI_URL", "http://localhost:8000/predict")
-                try:
-                    res = requests.post(api_url, json={"review_text": user_input}, timeout=2)
-                    if res.status_code == 200:
-                        data = res.json()
-                        sent = data["predicted_sentiment"]
-                        conf = data["confidence"] * 100
-                        # Store in session state
-                        st.session_state["last_sentiment"] = sent
-                        st.session_state["last_prediction"] = f"**Predicted Sentiment:** {sent.upper()} ({conf:.1f}% confidence)"
-                        # Trigger an instant rerun so that load_data() executes again and fetches the new database row immediately!
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.error(f"FastAPI error code: {res.status_code}")
-                except Exception as e:
-                    st.error(f"Failed to connect to FastAPI at {api_url}: {e}")
-                    
-    with col_table:
-        st.markdown("### 🔍 Scored Reviews Explorer")
-        sentiment_filter = st.selectbox("Filter table by predicted sentiment:", ["All", "positive", "neutral", "negative"])
-        filtered_df = df_preds if sentiment_filter == "All" else df_preds[df_preds['predicted_sentiment'] == sentiment_filter]
-        
-        st.dataframe(
-            filtered_df[['review_date', 'category', 'review_text', 'predicted_sentiment', 'confidence']].sort_values('review_date', ascending=False),
-            height=220
-        )
+    st.dataframe(
+        filtered_df[['review_date', 'category', 'review_text', 'predicted_sentiment', 'confidence']].sort_values('review_date', ascending=False),
+        height=220,
+        use_container_width=True
+    )
 
     # Render Enterprise Canary Governance & Approval Panel
     render_canary_governance(
@@ -590,17 +605,7 @@ else:
         has_candidate, has_canary, candidate_status, canary_is_enabled, champ_metrics, cand_metrics
     )
 
-    st.markdown("---")
-    st.markdown("### 🖥️ Live API Traffic Monitor (Real-Time Inference Logs)")
-    if df_logs is not None and len(df_logs) > 0:
-        cols_to_show = ['timestamp', 'model_route', 'latency_ms', 'review_text', 'predicted_sentiment', 'confidence']
-        avail_cols = [c for c in cols_to_show if c in df_logs.columns]
-        st.dataframe(
-            df_logs[avail_cols],
-            height=200
-        )
-    else:
-        st.info("No live on-demand API requests logged yet. Submit a prediction above to test!")
+
 
     st.markdown("---")
     st.markdown("### 🧠 Active Learning & Human-in-the-Loop Audit")
@@ -866,3 +871,232 @@ else:
                 st.success("🎉 No reviews requiring manual audit found for the selected filters!")
         else:
             st.info("No reviews found in database for auditing.")
+
+    # ------------------------------------------------------------------
+    # ⚡ Live On-Demand Scoring & Real-Time Traffic Monitor
+    # ------------------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### ⚡ Live On-Demand Scoring & Real-Time API Monitor")
+    st.caption("Test individual reviews via our real-time FastAPI serving endpoint and inspect logged inferences live.")
+    
+    col_test, col_logs = st.columns([5, 8])
+    
+    with col_test:
+        st.markdown("#### ⚡ Test Real-Time Scoring")
+        user_input = st.text_area("Enter custom review text to score:", placeholder="Type an EV review here...", height=110)
+        
+        # Check and display previous prediction in session state
+        if "last_prediction" in st.session_state:
+            sent = st.session_state.get("last_sentiment")
+            pred_text = st.session_state.get("last_prediction")
+            if sent == "positive":
+                st.success(pred_text)
+            elif sent == "negative":
+                st.error(pred_text)
+            else:
+                st.warning(pred_text)
+
+        if st.button("Predict Sentiment", type="primary", use_container_width=True):
+            if not user_input.strip():
+                st.warning("Review text cannot be empty!")
+            else:
+                api_url = os.environ.get("FASTAPI_URL", "http://localhost:8000/predict")
+                try:
+                    res = requests.post(api_url, json={"review_text": user_input}, timeout=2)
+                    if res.status_code == 200:
+                        data = res.json()
+                        sent = data["predicted_sentiment"]
+                        conf = data["confidence"] * 100
+                        # Store in session state
+                        st.session_state["last_review_text"] = user_input
+                        st.session_state["last_cleaned_text"] = data.get("cleaned_text", user_input)
+                        st.session_state["last_sentiment"] = sent
+                        st.session_state["last_confidence"] = data["confidence"]
+                        st.session_state["last_prediction"] = f"**Predicted Sentiment:** {sent.upper()} ({conf:.1f}% confidence)"
+                        # Trigger an instant rerun so that load_data() executes again and fetches the new database row immediately!
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"FastAPI error code: {res.status_code}")
+                except Exception as e:
+                    st.error(f"Failed to connect to FastAPI at {api_url}: {e}")
+
+        # Quick 1-click verify & save widget for the last scored review
+        if "last_prediction" in st.session_state and "last_review_text" in st.session_state:
+            st.markdown("##### 🎯 Quick Verify & Add to Data Train")
+            pred_s = st.session_state.get("last_sentiment", "positive")
+            opts = ["positive", "neutral", "negative"]
+            def_idx = opts.index(pred_s) if pred_s in opts else 0
+            
+            c_q1, c_q2 = st.columns([1, 1])
+            with c_q1:
+                chosen_quick_label = st.selectbox(
+                    "Verify Label:",
+                    options=opts,
+                    index=def_idx,
+                    key="quick_verify_label_select"
+                )
+            with c_q2:
+                st.write("")
+                st.write("")
+                if st.button("📥 Save to Train", key="btn_quick_save_train", use_container_width=True):
+                    try:
+                        match_id = None
+                        if df_logs is not None and not df_logs.empty and 'review_text' in df_logs.columns:
+                            matched = df_logs[df_logs['review_text'] == st.session_state["last_review_text"]]
+                            if len(matched) > 0 and 'id' in matched.columns:
+                                match_id = matched.iloc[0]['id']
+                        if not match_id:
+                            import time
+                            match_id = int(time.time() * 1000) % 10000000
+                            
+                        with engine.begin() as conn:
+                            save_ondemand_review_to_training(
+                                conn=conn,
+                                log_id=match_id,
+                                review_text=st.session_state["last_review_text"],
+                                cleaned_text=st.session_state.get("last_cleaned_text"),
+                                predicted_sentiment=st.session_state.get("last_sentiment"),
+                                confidence=st.session_state.get("last_confidence", 1.0),
+                                verified_sentiment=chosen_quick_label
+                            )
+                        st.success(f"🎉 Saved to store_reviews as **{chosen_quick_label.upper()}**!")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Failed to save: {ex}")
+
+    with col_logs:
+        st.markdown("#### 📋 Real-Time On-Demand Inference Records & Human Verification")
+        st.caption("Review on-demand predictions, adjust labels (dropdown), and save them in bulk to `store_reviews` to feed model retraining.")
+        
+        if df_logs is not None and len(df_logs) > 0:
+            edit_df = df_logs.copy()
+            if 'verified_sentiment' not in edit_df.columns:
+                edit_df['verified_sentiment'] = None
+                
+            def compute_train_status(val):
+                if pd.notnull(val) and str(val).strip() != "" and str(val).lower() not in ["none", "nan", "null"]:
+                    return "✅ In Data Train"
+                return "⏳ Pending Audit"
+
+            edit_df['status'] = edit_df['verified_sentiment'].apply(compute_train_status)
+            edit_df['verified_sentiment'] = edit_df['verified_sentiment'].apply(
+                lambda v: v if pd.notnull(v) and str(v).strip() != "" and str(v).lower() not in ["none", "nan", "null"] else None
+            )
+
+            cols_needed = ['id', 'timestamp', 'review_text', 'predicted_sentiment', 'confidence', 'verified_sentiment', 'status']
+            avail_cols = [c for c in cols_needed if c in edit_df.columns]
+            
+            edited_logs = st.data_editor(
+                edit_df[avail_cols],
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                    "timestamp": st.column_config.TextColumn("Time", disabled=True, width="small"),
+                    "review_text": st.column_config.TextColumn("Review Text", disabled=True, width="medium"),
+                    "predicted_sentiment": st.column_config.TextColumn("AI Pred", disabled=True, width="small"),
+                    "confidence": st.column_config.NumberColumn("Confidence", disabled=True, format="%.2f", width="small"),
+                    "verified_sentiment": st.column_config.SelectboxColumn(
+                        "Verified Label",
+                        options=["positive", "neutral", "negative"],
+                        required=False,
+                        help="Select ground-truth label to include in store_reviews for retraining",
+                        width="small"
+                    ),
+                    "status": st.column_config.TextColumn("Status", disabled=True, width="small")
+                },
+                disabled=["id", "timestamp", "review_text", "predicted_sentiment", "confidence", "status"],
+                use_container_width=True,
+                height=260,
+                key="ondemand_records_editor"
+            )
+            # Two Bulk Action Buttons
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                if st.button("💾 Save Verified Labels to Data Train", use_container_width=True, help="Save all rows with selected verified labels to store_reviews"):
+                    updates_to_run = []
+                    for _, row in edited_logs.iterrows():
+                        v_label = row.get('verified_sentiment')
+                        if pd.notnull(v_label) and str(v_label).strip() != "" and str(v_label).lower() not in ["none", "nan", "null"]:
+                            orig_match = edit_df[edit_df['id'] == row['id']]
+                            orig_v = orig_match.iloc[0]['verified_sentiment'] if len(orig_match) > 0 else None
+                            orig_v_str = str(orig_v).strip().lower() if pd.notnull(orig_v) else ""
+                            new_v_str = str(v_label).strip().lower()
+                            if new_v_str != orig_v_str or orig_v_str == "":
+                                updates_to_run.append({
+                                    "id": row['id'],
+                                    "review_text": row['review_text'],
+                                    "cleaned_text": row.get('cleaned_text', row['review_text']),
+                                    "predicted_sentiment": row['predicted_sentiment'],
+                                    "confidence": row.get('confidence', 1.0),
+                                    "verified_sentiment": new_v_str,
+                                    "timestamp": row['timestamp']
+                                })
+                    
+                    if len(updates_to_run) > 0:
+                        try:
+                            with engine.begin() as conn:
+                                for item in updates_to_run:
+                                    save_ondemand_review_to_training(
+                                        conn=conn,
+                                        log_id=item["id"],
+                                        review_text=item["review_text"],
+                                        cleaned_text=item.get("cleaned_text"),
+                                        predicted_sentiment=item["predicted_sentiment"],
+                                        confidence=item["confidence"],
+                                        verified_sentiment=item["verified_sentiment"],
+                                        timestamp=item["timestamp"]
+                                    )
+                            st.success(f"🎉 Successfully saved {len(updates_to_run)} verified on-demand reviews to store_reviews!")
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"Error saving to database: {ex}")
+                    else:
+                        st.info("No modifications or new verified labels selected.")
+
+            with col_b2:
+                if st.button("⚡ Bulk Approve All AI Predictions", use_container_width=True, help="Auto-approve all unverified reviews using AI predictions"):
+                    unverified_items = []
+                    for _, row in edited_logs.iterrows():
+                        v_label = row.get('verified_sentiment')
+                        if not (pd.notnull(v_label) and str(v_label).strip() != "" and str(v_label).lower() not in ["none", "nan", "null"]):
+                            ai_pred = str(row['predicted_sentiment']).strip().lower()
+                            if ai_pred in ["positive", "neutral", "negative"]:
+                                unverified_items.append({
+                                    "id": row['id'],
+                                    "review_text": row['review_text'],
+                                    "cleaned_text": row.get('cleaned_text', row['review_text']),
+                                    "predicted_sentiment": row['predicted_sentiment'],
+                                    "confidence": row.get('confidence', 1.0),
+                                    "verified_sentiment": ai_pred,
+                                    "timestamp": row['timestamp']
+                                })
+                    
+                    if len(unverified_items) > 0:
+                        try:
+                            with engine.begin() as conn:
+                                for item in unverified_items:
+                                    save_ondemand_review_to_training(
+                                        conn=conn,
+                                        log_id=item["id"],
+                                        review_text=item["review_text"],
+                                        cleaned_text=item.get("cleaned_text"),
+                                        predicted_sentiment=item["predicted_sentiment"],
+                                        confidence=item["confidence"],
+                                        verified_sentiment=item["verified_sentiment"],
+                                        timestamp=item["timestamp"]
+                                    )
+                            st.success(f"🎉 Successfully bulk-approved {len(unverified_items)} AI predictions to store_reviews!")
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"Error during bulk approval: {ex}")
+                    else:
+                        st.info("No unverified reviews to bulk approve.")
+        else:
+            empty_cols = ['id', 'timestamp', 'review_text', 'predicted_sentiment', 'confidence', 'verified_sentiment', 'status']
+            empty_df = pd.DataFrame(columns=empty_cols)
+            st.dataframe(empty_df, height=180, use_container_width=True)
+            st.info("ℹ️ No live on-demand API requests logged yet. Enter text and click Predict Sentiment on the left to test!")
+

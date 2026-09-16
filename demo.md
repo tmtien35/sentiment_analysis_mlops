@@ -161,12 +161,29 @@ Now that you have supplied real, gold-standard human-verified labels:
 Let's simulate a situation where your AI model behaves erratically, and you need to bypass it instantly to ensure business continuity.
 1.  In the sidebar, click the **Active Serving Mode** dropdown and change it from `Machine Learning Model` to **`Rule-Based Fallback Rules`**.
 2.  A yellow warning box appears: `🛡️ Safe-Mode Active: ML Model Bypassed!`.
-3.  Go to **Live On-Demand Scoring**, type: `"Pin sạc quá tệ, xe bị lỗi màn hình đen và cứu hộ cực kỳ chậm chạp!"` and click **Predict Sentiment**.
+3.  Scroll to the bottom of the page to **⚡ Live On-Demand Scoring**, type: `"Pin sạc quá tệ, xe bị lỗi màn hình đen và cứu hộ cực kỳ chậm chạp!"` and click **Predict Sentiment**.
 4.  **Result:** 
     *   It instantly returns **`NEGATIVE` (99.0% confidence)**.
-    *   Scroll down to the **Live API Traffic Monitor** table. You will see that the logged record's `cleaned_text` has **`[RULE-BASED FALLBACK]`** appended to it!
+    *   Inspect the **Real-Time On-Demand Inference Records** table right next to the input form. You will see that the newly logged record appears immediately with its `cleaned_text` having **`[RULE-BASED FALLBACK]`** appended to it!
     *   This proves that the serving API **completely bypassed the ML model** and ran your safe, deterministic rule-based fallback algorithm natively!
 5.  Toggle the mode back to `Machine Learning Model` once you are done to re-enable your high-performing AI.
+
+### **5. Test Live On-Demand Scoring & Real-Time Active Learning Ingestion:**
+Experience how engineers continuously feed live on-demand API traffic directly into the training data pool:
+1. Scroll down to the bottom of Streamlit to **⚡ Live On-Demand Scoring & Real-Time API Monitor**.
+2. **Test Single Scoring & 1-Click Quick Verify (Cột trái):**
+   * Enter an ambiguous review: `"Xe đi đầm chắc nhưng sạc trạm công cộng mất thời gian quá"` and click **`Predict Sentiment`**.
+   * View the instant prediction (e.g., `NEUTRAL (68.4% confidence)`).
+   * Right below the prediction result, in the **`🎯 Quick Verify & Add to Data Train`** box, select the gold label (e.g., `neutral`) and click **`📥 Save to Train`**.
+   * Notice the instant success notification and observe that the right-side table marks its status as **`✅ In Data Train`**!
+3. **Audit & Bulk Verification on Live Traffic Records (Cột phải):**
+   * Review previously logged inferences in the interactive table (`st.data_editor`).
+   * **Case 1 (AI was correct, low confidence):** Click the **`Verified Label`** dropdown and select the predicted label to confirm it as gold-standard training data.
+   * **Case 2 (AI misclassified entirely):** Click the **`Verified Label`** dropdown and select the correct sentiment (e.g., flip an incorrect `positive` into `negative`).
+   * Click **`💾 Save Verified Labels to Data Train`** to persist all audited rows into `store_reviews` with `category='on_demand'`.
+   * Or click **`⚡ Bulk Approve All AI Predictions`** to auto-ingest all unverified records into the training pool in 1 click!
+4. **Retrain Verification:** When you next click **`Trigger Retrain Manual`**, `ml/train_model.py` queries `SELECT review_text, verified_sentiment FROM store_reviews WHERE verified_sentiment IS NOT NULL`, pulling these human-moderated samples directly into the training dataset to retrain the next champion!
+
 
 ---
 

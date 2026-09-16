@@ -157,6 +157,10 @@ def log_prediction_to_db(review_text, cleaned_text, sentiment, confidence, model
                 conn.execute(text("ALTER TABLE inference_logs ADD COLUMN latency_ms REAL DEFAULT 0.0"))
             except Exception:
                 pass
+            try:
+                conn.execute(text("ALTER TABLE inference_logs ADD COLUMN verified_sentiment TEXT DEFAULT NULL"))
+            except Exception:
+                pass
                 
             conn.execute(text("""
                 INSERT INTO inference_logs (timestamp, review_text, cleaned_text, predicted_sentiment, confidence, model_route, latency_ms)

@@ -105,3 +105,85 @@ def test_api_and_dashboard_syntax():
         parsed = ast.parse(code)
         assert parsed is not None, f"Failed syntax parse on {path}"
 
+def test_ondemand_active_learning_flow():
+    """
+    Test 6: Verify on-demand inference verification & ingestion into store_reviews:
+    - Verifies that verified labels are written to store_reviews with category='on_demand'
+    - Verifies that retraining query finds the new ground-truth samples
+    - Validates human corrections of low-confidence and incorrect predictions
+    """
+    from sqlalchemy import create_engine, text
+    from dashboard.app import save_ondemand_review_to_training
+    
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE store_reviews (
+                review_id TEXT PRIMARY KEY,
+                review_date TEXT,
+                category TEXT,
+                review_text TEXT,
+                is_processed INTEGER DEFAULT 0,
+                verified_sentiment TEXT DEFAULT NULL
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE predictions (
+                review_id TEXT PRIMARY KEY,
+                review_date TEXT,
+                category TEXT,
+                review_text TEXT,
+                cleaned_text TEXT,
+                predicted_sentiment TEXT,
+                confidence REAL
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE inference_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                review_text TEXT,
+                cleaned_text TEXT,
+                predicted_sentiment TEXT,
+                confidence REAL,
+                model_route TEXT DEFAULT 'champion',
+                latency_ms REAL DEFAULT 0.0,
+                verified_sentiment TEXT DEFAULT NULL
+            );
+        """))
+        # Seed an inference log
+        conn.execute(text("""
+            INSERT INTO inference_logs (id, timestamp, review_text, cleaned_text, predicted_sentiment, confidence)
+            VALUES (1, '2026-09-14 10:00:00', 'Pin yếu quá sạc mãi không đầy', 'pin yếu quá sạc mãi không đầy', 'positive', 0.51);
+        """))
+        
+        # Human engineer audits row 1: corrects 'positive' (low-confidence misclassification) to 'negative'
+        save_ondemand_review_to_training(
+            conn=conn,
+            log_id=1,
+            review_text='Pin yếu quá sạc mãi không đầy',
+            cleaned_text='pin yếu quá sạc mãi không đầy',
+            predicted_sentiment='positive',
+            confidence=0.51,
+            verified_sentiment='negative',
+            timestamp='2026-09-14 10:00:00'
+        )
+        
+        # Verify store_reviews entry
+        res = conn.execute(text("SELECT review_id, category, verified_sentiment, is_processed FROM store_reviews WHERE review_id = 'ondemand_1'")).fetchone()
+        assert res is not None
+        assert res[0] == 'ondemand_1'
+        assert res[1] == 'on_demand'
+        assert res[2] == 'negative'
+        assert res[3] == 1
+        
+        # Verify inference_logs was updated
+        log_res = conn.execute(text("SELECT verified_sentiment FROM inference_logs WHERE id = 1")).fetchone()
+        assert log_res[0] == 'negative'
+        
+        # Verify retraining query (from ml/train_model.py) fetches this verified review
+        retrain_res = conn.execute(text("SELECT review_text, verified_sentiment FROM store_reviews WHERE verified_sentiment IS NOT NULL")).fetchall()
+        assert len(retrain_res) == 1
+        assert retrain_res[0][0] == 'Pin yếu quá sạc mãi không đầy'
+        assert retrain_res[0][1] == 'negative'
+
