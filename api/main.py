@@ -52,7 +52,7 @@ def get_setting(conn, key, default):
     return row[0] if row else default
 
 def load_serving_models():
-    """Load Champion and Canary (if enabled) models from MLflow Registry."""
+    """Load Champion and Canary (if enabled) models from MLflow Registry with robust fallback."""
     global champion_model, canary_model, model, canary_version_loaded
     mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
     engine = get_db_engine()
@@ -64,7 +64,23 @@ def load_serving_models():
         model = champion_model
         print("Champion model loaded successfully!")
     except Exception as e:
-        print(f"Error loading Champion model: {e}")
+        print(f"Warning: Could not load '@champion' alias ({e}). Attempting fallback to latest model version...")
+        try:
+            from mlflow.tracking import MlflowClient
+            client = MlflowClient()
+            versions = client.search_model_versions("name='ev-sentiment-model'")
+            if versions:
+                latest_v = max(int(v.version) for v in versions)
+                print(f"Fallback: Loading latest registered version v{latest_v}...")
+                champion_model = mlflow.sklearn.load_model(f"models:/ev-sentiment-model/{latest_v}")
+                model = champion_model
+                try:
+                    client.set_registered_model_alias("ev-sentiment-model", "champion", str(latest_v))
+                    print(f"Self-healed '@champion' alias to version {latest_v}.")
+                except Exception:
+                    pass
+        except Exception as e_fallback:
+            print(f"Fallback model loading failed: {e_fallback}")
         
     # 2. Check Canary settings
     canary_enabled = False
@@ -258,10 +274,25 @@ async def predict(request: PredictionRequest):
             latency_ms=round(latency_ms, 2)
         )
 
+    global champion_model, canary_model
     if champion_model is None:
-        raise HTTPException(
-            status_code=503, 
-            detail="Sentiment prediction model is currently unavailable."
+        load_serving_models()
+
+    if champion_model is None:
+        # Resilient Serving Circuit Breaker: Auto-fallback to rule classifier instead of 503 error
+        res = fallback_rule_classifier(request.review_text)
+        prediction = res["predicted_sentiment"]
+        confidence = float(res["confidence"])
+        cleaned = clean_text(request.review_text) + " [AUTO-SAFE-FALLBACK]"
+        latency_ms = (time.time() - start_time) * 1000.0
+        log_prediction_to_db(request.review_text, cleaned, prediction, confidence, model_route="auto_fallback_rule", latency_ms=latency_ms)
+        return PredictionResponse(
+            review_text=request.review_text,
+            cleaned_text=cleaned,
+            predicted_sentiment=prediction,
+            confidence=confidence,
+            model_route="auto_fallback_rule",
+            latency_ms=round(latency_ms, 2)
         )
     
     try:
