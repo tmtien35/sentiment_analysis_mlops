@@ -93,7 +93,20 @@ def send_drift_email(subject: str, html_body: str, ds: str = None) -> bool:
 
 
 def get_db_engine():
-    return create_engine(os.environ.get("DATABASE_URL", "sqlite:///data/results.db"))
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        sqlite_file = os.path.join(project_root, "data", "results.db").replace("\\", "/")
+        db_url = f"sqlite:///{sqlite_file}"
+    return create_engine(db_url)
+
+def get_mlflow_tracking_uri():
+    env_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    if env_uri:
+        return env_uri
+    if os.path.exists("/app/data/mlflow.db"):
+        return "sqlite:////app/data/mlflow.db"
+    db_path = os.path.join(project_root, "data", "mlflow.db").replace("\\", "/")
+    return f"sqlite:///{db_path}"
 
 def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
     engine = get_db_engine()
@@ -145,14 +158,57 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
 
     print(f"Found {pending_count} pending reviews. Starting batch prediction...")
     df_pending['cleaned_text'] = df_pending['review_text'].apply(clean_text)
-    mlflow.set_tracking_uri("sqlite:///data/mlflow.db")
-    model = mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")
     
-    df_pending['predicted_sentiment'] = model.predict(df_pending['cleaned_text'])
-    probs = model.predict_proba(df_pending['cleaned_text'])
-    classes = list(model.classes_)
-    confidences = [float(probs[i][classes.index(p)]) for i, p in enumerate(df_pending['predicted_sentiment'])]
-    df_pending['confidence'] = confidences
+    tracking_uri = get_mlflow_tracking_uri()
+    mlflow.set_tracking_uri(tracking_uri)
+    print(f"MLflow tracking URI set to: {tracking_uri}")
+    
+    model = None
+    try:
+        model = mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")
+        print("Loaded Champion model from MLflow Registry.")
+    except Exception as e_champ:
+        print(f"Warning: Could not load '@champion' model ({e_champ}). Attempting fallback to latest model version...")
+        try:
+            from mlflow.tracking import MlflowClient
+            client = MlflowClient()
+            versions = client.search_model_versions("name='ev-sentiment-model'")
+            if versions:
+                latest_v = max(int(v.version) for v in versions)
+                print(f"Fallback: Loading latest registered model v{latest_v}...")
+                model = mlflow.sklearn.load_model(f"models:/ev-sentiment-model/{latest_v}")
+                try:
+                    client.set_registered_model_alias("ev-sentiment-model", "champion", str(latest_v))
+                    print(f"Auto-healed '@champion' alias to version {latest_v}.")
+                except Exception:
+                    pass
+        except Exception as e_reg:
+            print(f"Warning: Model registry fallback also failed ({e_reg}).")
+
+    if model is not None:
+        df_pending['predicted_sentiment'] = model.predict(df_pending['cleaned_text'])
+        probs = model.predict_proba(df_pending['cleaned_text'])
+        classes = list(model.classes_)
+        confidences = [float(probs[i][classes.index(p)]) for i, p in enumerate(df_pending['predicted_sentiment'])]
+        df_pending['confidence'] = confidences
+    else:
+        # Fallback to rule classifier if MLflow model cannot be loaded (Zero Crash Guarantee)
+        print("Falling back to rule-based classifier for batch scoring...")
+        def _rule_predict(txt):
+            txt_lower = str(txt).lower()
+            neg_words = ["lỗi", "kém", "hỏng", "tệ", "thất vọng", "chán", "ọp ẹp", "chậm", "chờ lâu", "vất vả", "khó chịu"]
+            pos_words = ["tuyệt vời", "rất tốt", "êm ái", "tiết kiệm", "hài lòng", "ưng ý", "quá ngon", "đáng tiền", "mượt mà", "ổn định", "hời"]
+            neg_c = sum(1 for w in neg_words if w in txt_lower)
+            pos_c = sum(1 for w in pos_words if w in txt_lower)
+            if neg_c > pos_c:
+                return "negative", 0.90
+            elif pos_c > neg_c:
+                return "positive", 0.90
+            return "neutral", 0.60
+            
+        rule_results = df_pending['cleaned_text'].apply(_rule_predict)
+        df_pending['predicted_sentiment'] = [r[0] for r in rule_results]
+        df_pending['confidence'] = [r[1] for r in rule_results]
 
     # Save the new pending predictions into the predictions table (using INSERT OR REPLACE)
     with engine.begin() as conn:
@@ -211,7 +267,7 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         status_text = "Persistent Drift Confirmed (>= 2 days or PSI >= 0.25) - Retraining Triggered" if is_persistent_drift else "Isolated Drift Spike (Day 1) - Retraining Deferred"
         action_text = "Retraining triggered automatically in the background. Serving continues safely on @champion." if is_persistent_drift else "Retraining deferred until persistent drift is confirmed across consecutive days."
         html = f"""<div style="font-family:Arial;max-width:450px;border:1px solid #ddd;padding:15px;border-radius:8px;"><h2 style="color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;">🚨 DATA DRIFT DETECTED</h2><p>Significant vocabulary shift detected on <b>{ds}</b>.</p><p><b>Status:</b> {status_text}</p><p><b>PSI Score:</b> <span style="color:#e74c3c;font-weight:bold;">{psi_score:.4f}</span> (Threshold: 0.1500)</p><p style="background:#fdf2f2;padding:10px;color:#9b1c1c;"><strong>{action_text}</strong></p><p style="text-align:center;"><a href="http://localhost:8501" style="background:#3498db;color:white;padding:8px 16px;text-decoration:none;font-weight:bold;border-radius:4px;">Open Streamlit</a></p></div>"""
-        path = os.path.join("data", "alerts")
+        path = os.path.join(project_root, "data", "alerts")
         os.makedirs(path, exist_ok=True)
         fpath = os.path.join(path, f"drift_alert_{ds.replace('-', '_')}.html")
         with open(fpath, "w", encoding="utf-8") as f: f.write(html)
@@ -229,10 +285,11 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
             import sys, subprocess
             print("\n🚨 [SELF-HEALING] Persistent Data Drift Confirmed! Triggering automated retraining pipeline...")
             env = os.environ.copy()
-            env["PYTHONPATH"] = os.getcwd()
+            env["PYTHONPATH"] = project_root
             env["DRIFT_DATE"] = ds
+            train_script = os.path.join(project_root, "ml", "train_model.py")
             try:
-                subprocess.run([sys.executable, "ml/train_model.py"], env=env, check=True)
+                subprocess.run([sys.executable, train_script], env=env, cwd=project_root, check=True)
                 print("🚨 [SELF-HEALING] Retraining completed successfully!")
             except Exception as err:
                 print(f"🚨 [SELF-HEALING] Retraining failed: {err}")

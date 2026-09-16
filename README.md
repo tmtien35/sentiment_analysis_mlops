@@ -548,6 +548,16 @@ Nếu gặp lỗi này trên VM cũ, bạn chỉ cần xóa thư mục rác do D
 rm -rf mlflow.db
 ```
 
+
+### 🚨 3. Lỗi Đọc Log Airflow Webserver: `403 Client Error: FORBIDDEN` & `secret_key` Mismatch
+*   **Triệu chứng:** Khi xem task log trong Airflow UI (`http://localhost:8080`), xuất hiện thông báo lỗi:
+    ```text
+    *** Could not read served logs: 403 Client Error: FORBIDDEN for url: http://...:8793/log/...
+    *** !!!! Please make sure that all your Airflow components (e.g. schedulers, webservers, workers) have the same 'secret_key' configured in 'webserver' section
+    ```
+*   **Nguyên nhân:** Khi không cấu hình tường minh biến môi trường `AIRFLOW__WEBSERVER__SECRET_KEY`, container `airflow-webserver` và container `airflow-scheduler` sẽ tự động sinh hai khóa bảo mật JWT ngẫu nhiên khác nhau khi khởi động. Do đó, Webserver bị từ chối quyền (403 Forbidden) khi gọi API lấy log nội bộ từ Scheduler (port 8793).
+*   **Cách khắc phục:** Cấu hình biến môi trường cố định và đồng bộ `AIRFLOW__WEBSERVER__SECRET_KEY: "mlops_shared_jwt_secret_key_fixed_9988"` trong cả 2 dịch vụ `airflow-webserver` và `airflow-scheduler` tại `docker-compose.yml`. Đồng thời, các hàm trong DAG `batch_scoring.py` và `crawl_feed.py` được tối ưu hóa để tự động chuẩn hóa đường dẫn tuyệt đối theo thư mục gốc của dự án (`project_root`), bảo đảm truy xuất đúng cơ sở dữ liệu `data/mlflow.db` và `data/results.db` ngay cả khi Airflow chuyển thư mục làm việc nội bộ sang `airflow_home`.
+
 ---
 
 ### ⚠️ CẢNH BÁO QUAN TRỌNG VỀ XUNG ĐỘT CỔNG (PORT CONFLICT)

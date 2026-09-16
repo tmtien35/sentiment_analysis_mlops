@@ -3,8 +3,13 @@ from datetime import datetime
 import pandas as pd
 from sqlalchemy import create_engine, text
 
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
 def get_db_engine():
-    db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        sqlite_file = os.path.join(project_root, "data", "results.db").replace("\\", "/")
+        db_url = f"sqlite:///{sqlite_file}"
     return create_engine(db_url)
 
 def classify_aspect_category(text: str) -> str:
@@ -57,8 +62,19 @@ def crawl_daily_reviews(ds: str = None, n_reviews: int = 20):
     print(f"ℹ️  Scraper: Date '{ds}' currently has {existing_day_count} existing review(s). Ingesting next {n_reviews} fresh reviews...")
 
     # 3. Load simulation pool
-    pool_path = os.environ.get("FEED_POOL_PATH", "data/ev_feed_simulation_pool.csv")
-    if not os.path.exists(pool_path):
+    pool_path = os.environ.get("FEED_POOL_PATH")
+    if not pool_path or not os.path.exists(pool_path):
+        candidate_paths = [
+            "data/ev_feed_simulation_pool.csv",
+            os.path.join(project_root, "data", "ev_feed_simulation_pool.csv"),
+            "/app/data/ev_feed_simulation_pool.csv"
+        ]
+        for c in candidate_paths:
+            if os.path.exists(c):
+                pool_path = c
+                break
+
+    if not pool_path or not os.path.exists(pool_path):
         print(f"⚠️ Scraper Error: Simulation pool not found at '{pool_path}'!")
         return ds
         

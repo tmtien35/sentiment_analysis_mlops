@@ -95,8 +95,10 @@ services:
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
       AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////app/airflow_home/airflow.db"
+      AIRFLOW__WEBSERVER__SECRET_KEY: "mlops_shared_jwt_secret_key_fixed_9988"
       AIRFLOW__WEBSERVER__WORKERS: "2"
       DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
       SMTP_SENDER: ${SMTP_SENDER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_RECIPIENT: ${SMTP_RECIPIENT:-}
@@ -127,7 +129,9 @@ services:
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
       AIRFLOW__CORE__DAGS_FOLDER: "/app/airflow_home/dags"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////app/airflow_home/airflow.db"
+      AIRFLOW__WEBSERVER__SECRET_KEY: "mlops_shared_jwt_secret_key_fixed_9988"
       DATABASE_URL: postgresql://mlops:mlops@postgres:5432/results_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
       SMTP_SENDER: ${SMTP_SENDER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_RECIPIENT: ${SMTP_RECIPIENT:-}

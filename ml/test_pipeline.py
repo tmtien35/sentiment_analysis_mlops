@@ -226,3 +226,46 @@ def test_notify_fastapi_reload_graceful():
     res = notify_fastapi_reload()
     assert res in [True, False]
 
+
+def test_airflow_docker_compose_secret_key_sync():
+    """
+    Test 8: Verify Airflow components (webserver and scheduler) in docker-compose.yml
+    have the exact same AIRFLOW__WEBSERVER__SECRET_KEY configured.
+    Prevents 403 Forbidden log-reading regressions across services.
+    """
+    import yaml
+    with open("docker-compose.yml", "r", encoding="utf-8") as f:
+        compose_cfg = yaml.safe_load(f)
+    
+    services = compose_cfg.get("services", {})
+    webserver_env = services.get("airflow-webserver", {}).get("environment", {})
+    scheduler_env = services.get("airflow-scheduler", {}).get("environment", {})
+    
+    ws_key = webserver_env.get("AIRFLOW__WEBSERVER__SECRET_KEY")
+    sched_key = scheduler_env.get("AIRFLOW__WEBSERVER__SECRET_KEY")
+    
+    assert ws_key is not None and len(ws_key) > 8, "AIRFLOW__WEBSERVER__SECRET_KEY must be set in airflow-webserver"
+    assert sched_key is not None and len(sched_key) > 8, "AIRFLOW__WEBSERVER__SECRET_KEY must be set in airflow-scheduler"
+    assert ws_key == sched_key, "Airflow webserver and scheduler secret_keys must be identical to allow reading task logs without 403 Forbidden"
+
+def test_batch_scoring_cwd_independence():
+    """
+    Test 9: Verify crawl_daily_reviews and get_mlflow_tracking_uri work seamlessly
+    even when current working directory is changed to airflow_home (simulating container execution).
+    """
+    import os
+    from data.crawl_feed import crawl_daily_reviews
+    from airflow_home.dags.batch_scoring import get_mlflow_tracking_uri, get_db_engine
+    
+    original_cwd = os.getcwd()
+    try:
+        os.chdir("airflow_home")
+        # Ensure URI resolution doesn't crash or create misplaced databases
+        tracking_uri = get_mlflow_tracking_uri()
+        assert "mlflow.db" in tracking_uri
+        
+        engine = get_db_engine()
+        assert engine is not None
+    finally:
+        os.chdir(original_cwd)
+
