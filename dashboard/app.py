@@ -26,17 +26,27 @@ def initialize_settings_table(conn):
     if res.fetchone() is None:
         conn.execute(text("INSERT INTO system_settings VALUES ('serving_mode', 'ml')"))
     
-    # Idempotently add verified_sentiment column to store_reviews if missing
+    # Idempotently add verified_sentiment column to store_reviews and inference_logs if missing
     try:
-        conn.execute(text("ALTER TABLE store_reviews ADD COLUMN verified_sentiment TEXT DEFAULT NULL;"))
-    except Exception:
-        pass
-        
-    # Idempotently add verified_sentiment column to inference_logs if missing
-    try:
-        conn.execute(text("ALTER TABLE inference_logs ADD COLUMN verified_sentiment TEXT DEFAULT NULL;"))
-    except Exception:
-        pass
+        is_postgres = "postgres" in str(conn.engine.url)
+        if is_postgres:
+            conn.execute(text("ALTER TABLE store_reviews ADD COLUMN IF NOT EXISTS verified_sentiment TEXT DEFAULT NULL;"))
+            conn.execute(text("ALTER TABLE inference_logs ADD COLUMN IF NOT EXISTS verified_sentiment TEXT DEFAULT NULL;"))
+        else:
+            try:
+                cols_store = [r[1] for r in conn.execute(text("PRAGMA table_info(store_reviews);")).fetchall()]
+                if "verified_sentiment" not in cols_store:
+                    conn.execute(text("ALTER TABLE store_reviews ADD COLUMN verified_sentiment TEXT DEFAULT NULL;"))
+            except Exception:
+                pass
+            try:
+                cols_logs = [r[1] for r in conn.execute(text("PRAGMA table_info(inference_logs);")).fetchall()]
+                if "verified_sentiment" not in cols_logs:
+                    conn.execute(text("ALTER TABLE inference_logs ADD COLUMN verified_sentiment TEXT DEFAULT NULL;"))
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"initialize_settings_table warning: {e}")
 
 def save_ondemand_review_to_training(conn, log_id, review_text, cleaned_text, predicted_sentiment, confidence, verified_sentiment, timestamp=None):
     """Save or update an on-demand inference record into store_reviews, predictions, and inference_logs."""
@@ -224,8 +234,12 @@ def render_canary_governance(client, engine, df_logs, champion_version, candidat
 def load_data():
     engine = get_db_engine()
     try:
-        with engine.begin() as conn:
-            initialize_settings_table(conn)
+        try:
+            with engine.begin() as conn:
+                initialize_settings_table(conn)
+        except Exception as init_err:
+            print(f"initialize_settings_table warning: {init_err}")
+
         with engine.connect() as conn:
             df_preds = pd.read_sql("SELECT * FROM predictions", con=conn.connection)
             df_drift = pd.read_sql("SELECT * FROM drift_metrics ORDER BY batch_date ASC", con=conn.connection)
@@ -913,6 +927,9 @@ else:
                         st.session_state["last_sentiment"] = sent
                         st.session_state["last_confidence"] = data["confidence"]
                         st.session_state["last_prediction"] = f"**Predicted Sentiment:** {sent.upper()} ({conf:.1f}% confidence)"
+                        # Brief pause to ensure DB write commit visibility across concurrent connections
+                        import time
+                        time.sleep(0.1)
                         # Trigger an instant rerun so that load_data() executes again and fetches the new database row immediately!
                         st.cache_data.clear()
                         st.rerun()

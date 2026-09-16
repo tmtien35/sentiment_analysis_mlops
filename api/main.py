@@ -114,10 +114,8 @@ def fallback_rule_classifier(text: str) -> dict:
     else:
         return {"predicted_sentiment": "neutral", "confidence": 0.50}
 
-def log_prediction_to_db(review_text, cleaned_text, sentiment, confidence, model_route="champion", latency_ms=0.0):
-    """Log real-time API predictions into a dedicated inference_logs table dynamically."""
-    from datetime import datetime
-    engine = get_db_engine()
+def init_inference_logs_table(engine):
+    """Ensure inference_logs table exists and has all required columns safely without failing transactions."""
     try:
         with engine.begin() as conn:
             is_postgres = "postgres" in str(engine.url)
@@ -131,9 +129,13 @@ def log_prediction_to_db(review_text, cleaned_text, sentiment, confidence, model
                         predicted_sentiment TEXT,
                         confidence REAL,
                         model_route TEXT DEFAULT 'champion',
-                        latency_ms REAL DEFAULT 0.0
+                        latency_ms REAL DEFAULT 0.0,
+                        verified_sentiment TEXT DEFAULT NULL
                     );
                 """))
+                conn.execute(text("ALTER TABLE inference_logs ADD COLUMN IF NOT EXISTS model_route TEXT DEFAULT 'champion';"))
+                conn.execute(text("ALTER TABLE inference_logs ADD COLUMN IF NOT EXISTS latency_ms REAL DEFAULT 0.0;"))
+                conn.execute(text("ALTER TABLE inference_logs ADD COLUMN IF NOT EXISTS verified_sentiment TEXT DEFAULT NULL;"))
             else:
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS inference_logs (
@@ -144,44 +146,58 @@ def log_prediction_to_db(review_text, cleaned_text, sentiment, confidence, model
                         predicted_sentiment TEXT,
                         confidence REAL,
                         model_route TEXT DEFAULT 'champion',
-                        latency_ms REAL DEFAULT 0.0
+                        latency_ms REAL DEFAULT 0.0,
+                        verified_sentiment TEXT DEFAULT NULL
                     );
                 """))
-                
-            # Perform column migrations if older table exists
-            try:
-                conn.execute(text("ALTER TABLE inference_logs ADD COLUMN model_route TEXT DEFAULT 'champion'"))
-            except Exception:
-                pass
-            try:
-                conn.execute(text("ALTER TABLE inference_logs ADD COLUMN latency_ms REAL DEFAULT 0.0"))
-            except Exception:
-                pass
-            try:
-                conn.execute(text("ALTER TABLE inference_logs ADD COLUMN verified_sentiment TEXT DEFAULT NULL"))
-            except Exception:
-                pass
-                
-            conn.execute(text("""
-                INSERT INTO inference_logs (timestamp, review_text, cleaned_text, predicted_sentiment, confidence, model_route, latency_ms)
-                VALUES (:timestamp, :review_text, :cleaned_text, :predicted_sentiment, :confidence, :model_route, :latency_ms);
-            """), {
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "review_text": review_text,
-                "cleaned_text": cleaned_text,
-                "predicted_sentiment": sentiment,
-                "confidence": float(confidence),
-                "model_route": model_route,
-                "latency_ms": float(latency_ms)
-            })
+                try:
+                    cols = [r[1] for r in conn.execute(text("PRAGMA table_info(inference_logs);")).fetchall()]
+                    if "model_route" not in cols:
+                        conn.execute(text("ALTER TABLE inference_logs ADD COLUMN model_route TEXT DEFAULT 'champion';"))
+                    if "latency_ms" not in cols:
+                        conn.execute(text("ALTER TABLE inference_logs ADD COLUMN latency_ms REAL DEFAULT 0.0;"))
+                    if "verified_sentiment" not in cols:
+                        conn.execute(text("ALTER TABLE inference_logs ADD COLUMN verified_sentiment TEXT DEFAULT NULL;"))
+                except Exception:
+                    pass
     except Exception as e:
-        print(f"Inference Logging Failed: {e}")
+        print(f"Table Init Warning: {e}")
+
+def log_prediction_to_db(review_text, cleaned_text, sentiment, confidence, model_route="champion", latency_ms=0.0):
+    """Log real-time API predictions into a dedicated inference_logs table dynamically."""
+    from datetime import datetime
+    engine = get_db_engine()
+    params = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "review_text": review_text,
+        "cleaned_text": cleaned_text,
+        "predicted_sentiment": sentiment,
+        "confidence": float(confidence),
+        "model_route": model_route,
+        "latency_ms": float(latency_ms)
+    }
+    insert_sql = text("""
+        INSERT INTO inference_logs (timestamp, review_text, cleaned_text, predicted_sentiment, confidence, model_route, latency_ms)
+        VALUES (:timestamp, :review_text, :cleaned_text, :predicted_sentiment, :confidence, :model_route, :latency_ms);
+    """)
+    try:
+        with engine.begin() as conn:
+            conn.execute(insert_sql, params)
+    except Exception as e:
+        # If table was missing or schema needed migration, initialize safely and retry once
+        try:
+            init_inference_logs_table(engine)
+            with engine.begin() as conn:
+                conn.execute(insert_sql, params)
+        except Exception as retry_err:
+            print(f"Inference Logging Failed: {retry_err}")
 
 # 2. Lifecycle manager to load model once at startup
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_serving_models()
     # Pre-initialize table on startup
+    init_inference_logs_table(get_db_engine())
     log_prediction_to_db("init", "init", "neutral", 0.0, "champion", 0.0)
     yield
     print("Shutting down API server...")

@@ -187,3 +187,32 @@ def test_ondemand_active_learning_flow():
         assert retrain_res[0][0] == 'Pin yếu quá sạc mãi không đầy'
         assert retrain_res[0][1] == 'negative'
 
+def test_api_log_prediction_db_persistence():
+    import os
+    from sqlalchemy import create_engine, text
+    from api.main import init_inference_logs_table, log_prediction_to_db
+    test_db = "sqlite:///test_api_log.db"
+    os.environ["DATABASE_URL"] = test_db
+    engine = create_engine(test_db)
+    
+    init_inference_logs_table(engine)
+    # Calling it twice should be completely idempotent and not fail
+    init_inference_logs_table(engine)
+    
+    log_prediction_to_db("Xe dep", "xe dep", "positive", 0.95, "champion", 4.2)
+    
+    with engine.connect() as conn:
+        res = conn.execute(text("SELECT review_text, predicted_sentiment, confidence, model_route, latency_ms FROM inference_logs WHERE review_text = 'Xe dep'")).fetchone()
+        assert res is not None
+        assert res[0] == "Xe dep"
+        assert res[1] == "positive"
+        assert res[2] == 0.95
+        assert res[3] == "champion"
+        assert res[4] == 4.2
+
+    if os.path.exists("test_api_log.db"):
+        try:
+            os.remove("test_api_log.db")
+        except Exception:
+            pass
+

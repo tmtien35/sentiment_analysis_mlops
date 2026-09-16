@@ -90,9 +90,10 @@ flowchart TD
 1. **Giao diện Phê duyệt trên Streamlit:** Khi Candidate đạt chuẩn, bảng điều khiển Streamlit hiển thị thẻ thông báo:
    * **Nút "✅ Approve & Enable Canary (10% Traffic)":** Gán alias `@canary`, cập nhật bảng `system_settings` (`canary_enabled = 'true'`), và gửi tín hiệu cho FastAPI nạp mô hình Canary.
    * **Nút "❌ Reject Contender":** Đóng ứng viên nếu có nghi vấn về chất lượng.
-2. **Phân Luồng Canary trên FastAPI:**
+2. **Phân Luồng Canary & Ghi Log An Toàn trên FastAPI:**
    * Tự động điều phối ngẫu nhiên: **90% lưu lượng sang Champion** / **10% lưu lượng sang Canary**.
    * Đo lường thời gian đáp ứng `latency_ms` và ghi nhận `model_route` (`champion` hoặc `canary`) vào bảng `inference_logs` theo thời gian thực.
+   * **Kiến trúc DDL an toàn & Idempotent:** Schema cơ sở dữ liệu được khởi tạo và di trú tự động ở vòng đời khởi động (`lifespan`) bằng cú pháp `ADD COLUMN IF NOT EXISTS`, loại bỏ hoàn toàn hiện tượng hủy giao dịch SQL (`transaction abort`) trên PostgreSQL, bảo đảm bản ghi suy luận xuất hiện tức thì trên giao diện giám sát.
 
 #### Giai Đoạn 4: Giám Sát Proxy KPIs & Quyết Định 1-Click Promote / Rollback
 1. **Bảng Giám sát Operational KPIs trên Streamlit:**
