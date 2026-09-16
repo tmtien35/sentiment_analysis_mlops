@@ -968,7 +968,7 @@ else:
                     "timestamp": st.column_config.TextColumn("Time", disabled=True, width="small"),
                     "review_text": st.column_config.TextColumn("Review Text", disabled=True, width="medium"),
                     "predicted_sentiment": st.column_config.TextColumn("AI Pred", disabled=True, width="small"),
-                    "confidence": st.column_config.NumberColumn("Confidence", disabled=True, format="%.2f", width="small"),
+                    "confidence": st.column_config.NumberColumn("Confidence", disabled=True, format="%.4f", width="small"),
                     "verified_sentiment": st.column_config.SelectboxColumn(
                         "Verified Label",
                         options=["positive", "neutral", "negative"],

@@ -249,7 +249,7 @@ async def predict(request: PredictionRequest):
     if serving_mode == "fallback":
         res = fallback_rule_classifier(request.review_text)
         prediction = res["predicted_sentiment"]
-        confidence = float(res["confidence"])
+        confidence = round(float(res["confidence"]), 4)
         cleaned = clean_text(request.review_text) + " [RULE-BASED FALLBACK]"
         latency_ms = (time.time() - start_time) * 1000.0
         log_prediction_to_db(request.review_text, cleaned, prediction, confidence, model_route="fallback_rule", latency_ms=latency_ms)
@@ -270,7 +270,7 @@ async def predict(request: PredictionRequest):
         # Resilient Serving Circuit Breaker: Auto-fallback to rule classifier instead of 503 error
         res = fallback_rule_classifier(request.review_text)
         prediction = res["predicted_sentiment"]
-        confidence = float(res["confidence"])
+        confidence = round(float(res["confidence"]), 4)
         cleaned = clean_text(request.review_text) + " [AUTO-SAFE-FALLBACK]"
         latency_ms = (time.time() - start_time) * 1000.0
         log_prediction_to_db(request.review_text, cleaned, prediction, confidence, model_route="auto_fallback_rule", latency_ms=latency_ms)
@@ -308,7 +308,7 @@ async def predict(request: PredictionRequest):
         probs = selected_model.predict_proba([cleaned])[0]
         classes = selected_model.classes_
         pred_idx = list(classes).index(prediction)
-        confidence = float(probs[pred_idx])
+        confidence = round(float(probs[pred_idx]), 4)
         latency_ms = (time.time() - start_time) * 1000.0
         
         # Log prediction transaction with route & latency telemetry

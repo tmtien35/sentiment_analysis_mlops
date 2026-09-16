@@ -164,7 +164,7 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         df_pending['predicted_sentiment'] = model.predict(df_pending['cleaned_text'])
         probs = model.predict_proba(df_pending['cleaned_text'])
         classes = list(model.classes_)
-        confidences = [float(probs[i][classes.index(p)]) for i, p in enumerate(df_pending['predicted_sentiment'])]
+        confidences = [round(float(probs[i][classes.index(p)]), 4) for i, p in enumerate(df_pending['predicted_sentiment'])]
         df_pending['confidence'] = confidences
         print(f"Batch inference complete for {len(df_pending)} records using Champion ML model.")
     else:
@@ -209,7 +209,7 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
                             continue
                         lp = model.predict([ltxt])[0]
                         lprobs = model.predict_proba([ltxt])[0]
-                        lc = float(lprobs[list(model.classes_).index(lp)])
+                        lc = round(float(lprobs[list(model.classes_).index(lp)]), 4)
                         conn.execute(text("UPDATE predictions SET predicted_sentiment = :p, confidence = :c WHERE review_id = :rid"), {"p": lp, "c": lc, "rid": lid})
                     print("✅ Legacy predictions successfully auto-healed.")
             except Exception as e_dummy:
@@ -220,7 +220,7 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         res_all = conn.execute(text("SELECT * FROM predictions WHERE review_date = :ds"), {"ds": ds})
         df_all = pd.DataFrame(res_all.fetchall(), columns=res_all.keys())
     cumulative_count = len(df_all)
-    avg_confidence = float(np.mean(df_all['confidence']))
+    avg_confidence = round(float(np.mean(df_all['confidence'])), 4)
     
     expected_pct = { 'positive': 1/3, 'neutral': 1/3, 'negative': 1/3 }
     counts = df_all['predicted_sentiment'].value_counts()
