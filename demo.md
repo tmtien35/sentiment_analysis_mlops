@@ -171,16 +171,15 @@ Let's simulate a situation where your AI model behaves erratically, and you need
 ### **5. Test Live On-Demand Scoring & Real-Time Active Learning Ingestion:**
 Experience how engineers continuously feed live on-demand API traffic directly into the training data pool:
 1. Scroll down to the bottom of Streamlit to **⚡ Live On-Demand Scoring & Real-Time API Monitor**.
-2. **Test Single Scoring & 1-Click Quick Verify (Cột trái):**
+2. **Test Single Scoring (Cột trái):**
    * Enter an ambiguous review: `"Xe đi đầm chắc nhưng sạc trạm công cộng mất thời gian quá"` and click **`Predict Sentiment`**.
    * View the instant prediction (e.g., `NEUTRAL (68.4% confidence)`).
-   * Right below the prediction result, in the **`🎯 Quick Verify & Add to Data Train`** box, select the gold label (e.g., `neutral`) and click **`📥 Save to Train`**.
-   * Notice the instant success notification and observe that the right-side table marks its status as **`✅ In Data Train`**!
-3. **Audit & Bulk Verification on Live Traffic Records (Cột phải):**
-   * Review previously logged inferences in the interactive table (`st.data_editor`).
+   * Notice that the review appears immediately at the top of the right-side table with status **`⏳ Pending Audit`**.
+3. **Audit & Verification on Live Traffic Records (Cột phải):**
+   * Review logged inferences in the interactive table (`st.data_editor`).
    * **Case 1 (AI was correct, low confidence):** Click the **`Verified Label`** dropdown and select the predicted label to confirm it as gold-standard training data.
    * **Case 2 (AI misclassified entirely):** Click the **`Verified Label`** dropdown and select the correct sentiment (e.g., flip an incorrect `positive` into `negative`).
-   * Click **`💾 Save Verified Labels to Data Train`** to persist all audited rows into `store_reviews` with `category='on_demand'`.
+   * Click **`💾 Save Verified Labels to Data Train`** to persist all audited rows into `store_reviews` with `category='on_demand'` (status turns to **`✅ In Data Train`**!).
    * Or click **`⚡ Bulk Approve All AI Predictions`** to auto-ingest all unverified records into the training pool in 1 click!
 4. **Retrain Verification:** When you next click **`Trigger Retrain Manual`**, `ml/train_model.py` queries `SELECT review_text, verified_sentiment FROM store_reviews WHERE verified_sentiment IS NOT NULL`, pulling these human-moderated samples directly into the training dataset to retrain the next champion!
 

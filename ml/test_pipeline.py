@@ -181,6 +181,10 @@ def test_ondemand_active_learning_flow():
         log_res = conn.execute(text("SELECT verified_sentiment FROM inference_logs WHERE id = 1")).fetchone()
         assert log_res[0] == 'negative'
         
+        # Verify predictions does NOT contain on-demand review (isolating operational monitoring charts from test reviews)
+        pred_res = conn.execute(text("SELECT COUNT(*) FROM predictions WHERE review_id = 'ondemand_1'")).fetchone()
+        assert pred_res[0] == 0
+
         # Verify retraining query (from ml/train_model.py) fetches this verified review
         retrain_res = conn.execute(text("SELECT review_text, verified_sentiment FROM store_reviews WHERE verified_sentiment IS NOT NULL")).fetchall()
         assert len(retrain_res) == 1

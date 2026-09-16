@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import streamlit as st
 import pandas as pd
 import requests
@@ -45,18 +46,23 @@ def initialize_settings_table(conn):
                     conn.execute(text("ALTER TABLE inference_logs ADD COLUMN verified_sentiment TEXT DEFAULT NULL;"))
             except Exception:
                 pass
+        # Clean any legacy on-demand records from predictions if present
+        try:
+            conn.execute(text("DELETE FROM predictions WHERE category = 'on_demand' OR review_id LIKE 'ondemand_%';"))
+        except Exception:
+            pass
     except Exception as e:
         print(f"initialize_settings_table warning: {e}")
 
 def save_ondemand_review_to_training(conn, log_id, review_text, cleaned_text, predicted_sentiment, confidence, verified_sentiment, timestamp=None):
-    """Save or update an on-demand inference record into store_reviews, predictions, and inference_logs."""
+    """Save or update an on-demand inference record into store_reviews (for Active Learning model retraining) and inference_logs.
+    Note: On-demand reviews are intentionally NOT saved into predictions to prevent polluting daily operational monitoring charts."""
     if not verified_sentiment:
         return
     r_id = f"ondemand_{log_id}"
     r_date = str(timestamp)[:10] if timestamp else datetime.now().strftime("%Y-%m-%d")
-    r_clean = str(cleaned_text) if cleaned_text else str(review_text)
     
-    # 1. Update store_reviews (Universal delete + insert)
+    # 1. Update store_reviews (Universal delete + insert for Active Learning retraining)
     conn.execute(text("DELETE FROM store_reviews WHERE review_id = :review_id"), {"review_id": r_id})
     conn.execute(text("""
         INSERT INTO store_reviews (review_id, review_date, category, review_text, is_processed, verified_sentiment)
@@ -68,19 +74,11 @@ def save_ondemand_review_to_training(conn, log_id, review_text, cleaned_text, pr
         "verified_sentiment": str(verified_sentiment)
     })
     
-    # 2. Update predictions (Universal delete + insert)
-    conn.execute(text("DELETE FROM predictions WHERE review_id = :review_id"), {"review_id": r_id})
-    conn.execute(text("""
-        INSERT INTO predictions (review_id, review_date, category, review_text, cleaned_text, predicted_sentiment, confidence)
-        VALUES (:review_id, :review_date, 'on_demand', :review_text, :cleaned_text, :predicted_sentiment, :confidence)
-    """), {
-        "review_id": r_id,
-        "review_date": r_date,
-        "review_text": str(review_text),
-        "cleaned_text": r_clean,
-        "predicted_sentiment": str(predicted_sentiment) if predicted_sentiment else 'neutral',
-        "confidence": float(confidence) if confidence is not None else 1.0
-    })
+    # 2. Ensure predictions does NOT contain on-demand review
+    try:
+        conn.execute(text("DELETE FROM predictions WHERE review_id = :review_id"), {"review_id": r_id})
+    except Exception:
+        pass
     
     # 3. Update inference_logs
     try:
@@ -241,7 +239,7 @@ def load_data():
             print(f"initialize_settings_table warning: {init_err}")
 
         with engine.connect() as conn:
-            df_preds = pd.read_sql("SELECT * FROM predictions", con=conn.connection)
+            df_preds = pd.read_sql("SELECT * FROM predictions WHERE category != 'on_demand' AND review_id NOT LIKE 'ondemand_%'", con=conn.connection)
             df_drift = pd.read_sql("SELECT * FROM drift_metrics ORDER BY batch_date ASC", con=conn.connection)
             try:
                 df_logs = pd.read_sql("SELECT * FROM inference_logs WHERE review_text != 'init' ORDER BY timestamp DESC", con=conn.connection)
@@ -261,6 +259,7 @@ def load_data():
                         s.verified_sentiment
                     FROM store_reviews s
                     LEFT JOIN predictions p ON s.review_id = p.review_id
+                    WHERE s.category != 'on_demand' AND s.review_id NOT LIKE 'ondemand_%'
                 """
                 df_audit = pd.read_sql(query, con=conn.connection)
             except Exception:
@@ -937,51 +936,6 @@ else:
                         st.error(f"FastAPI error code: {res.status_code}")
                 except Exception as e:
                     st.error(f"Failed to connect to FastAPI at {api_url}: {e}")
-
-        # Quick 1-click verify & save widget for the last scored review
-        if "last_prediction" in st.session_state and "last_review_text" in st.session_state:
-            st.markdown("##### 🎯 Quick Verify & Add to Data Train")
-            pred_s = st.session_state.get("last_sentiment", "positive")
-            opts = ["positive", "neutral", "negative"]
-            def_idx = opts.index(pred_s) if pred_s in opts else 0
-            
-            c_q1, c_q2 = st.columns([1, 1])
-            with c_q1:
-                chosen_quick_label = st.selectbox(
-                    "Verify Label:",
-                    options=opts,
-                    index=def_idx,
-                    key="quick_verify_label_select"
-                )
-            with c_q2:
-                st.write("")
-                st.write("")
-                if st.button("📥 Save to Train", key="btn_quick_save_train", use_container_width=True):
-                    try:
-                        match_id = None
-                        if df_logs is not None and not df_logs.empty and 'review_text' in df_logs.columns:
-                            matched = df_logs[df_logs['review_text'] == st.session_state["last_review_text"]]
-                            if len(matched) > 0 and 'id' in matched.columns:
-                                match_id = matched.iloc[0]['id']
-                        if not match_id:
-                            import time
-                            match_id = int(time.time() * 1000) % 10000000
-                            
-                        with engine.begin() as conn:
-                            save_ondemand_review_to_training(
-                                conn=conn,
-                                log_id=match_id,
-                                review_text=st.session_state["last_review_text"],
-                                cleaned_text=st.session_state.get("last_cleaned_text"),
-                                predicted_sentiment=st.session_state.get("last_sentiment"),
-                                confidence=st.session_state.get("last_confidence", 1.0),
-                                verified_sentiment=chosen_quick_label
-                            )
-                        st.success(f"🎉 Saved to store_reviews as **{chosen_quick_label.upper()}**!")
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception as ex:
-                        st.error(f"Failed to save: {ex}")
 
     with col_logs:
         st.markdown("#### 📋 Real-Time On-Demand Inference Records & Human Verification")
