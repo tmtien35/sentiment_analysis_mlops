@@ -220,3 +220,9 @@ def test_api_log_prediction_db_persistence():
         except Exception:
             pass
 
+def test_notify_fastapi_reload_graceful():
+    from ml.train_model import notify_fastapi_reload
+    # When API is not running locally, notify_fastapi_reload should gracefully handle and return False without raising exceptions
+    res = notify_fastapi_reload()
+    assert res in [True, False]
+

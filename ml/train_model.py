@@ -278,5 +278,24 @@ def main():
             client.set_model_version_tag(name=model_name_reg, version=new_version, key="approval_status", value="contender_runner_up")
             client.set_model_version_tag(name=model_name_reg, version=new_version, key="gatekeeper_result", value="failed")
 
+def notify_fastapi_reload():
+    """Trigger hot-reload of FastAPI serving models across Docker network or local host."""
+    import requests
+    candidates = [
+        os.environ.get("FASTAPI_URL", "http://localhost:8000/predict").replace("/predict", "/reload-models"),
+        "http://fastapi:8000/reload-models",
+        "http://localhost:8000/reload-models"
+    ]
+    for url in candidates:
+        try:
+            res = requests.post(url, timeout=2)
+            if res.status_code == 200:
+                print(f"🔄 [HOT-RELOAD] Successfully notified FastAPI at '{url}' to reload models!")
+                return True
+        except Exception:
+            pass
+    return False
+
 if __name__ == "__main__":
     main()
+    notify_fastapi_reload()

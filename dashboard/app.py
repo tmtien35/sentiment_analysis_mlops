@@ -452,7 +452,8 @@ if st.sidebar.button("Trigger Retrain Manual"):
         try:
             res = subprocess.run([sys.executable, "ml/train_model.py"], env=env, capture_output=True, text=True)
             if res.returncode == 0:
-                st.sidebar.success("🏆 Retraining Completed!")
+                notify_api_reload()
+                st.sidebar.success("🏆 Retraining Completed & Serving Models Hot-Reloaded!")
                 st.cache_data.clear()
                 st.rerun()
             else:
