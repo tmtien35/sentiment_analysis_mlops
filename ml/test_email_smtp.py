@@ -49,7 +49,7 @@ def send_drift_email(subject: str, html_body: str, ds: str = None) -> bool:
     load_dotenv_config()
     sender_email = os.environ.get("SMTP_SENDER", "").strip()
     sender_password = os.environ.get("SMTP_PASSWORD", "").strip()
-    recipient_email = os.environ.get("SMTP_RECIPIENT", sender_email).strip() or "tmtien35@gmail.com"
+    recipient_email = os.environ.get("SMTP_RECIPIENT", "").strip() or sender_email
 
     if not sender_password or not sender_email:
         print("ℹ️  [EMAIL ALERT] Real email sending skipped (SMTP_SENDER or SMTP_PASSWORD not configured).")
@@ -98,7 +98,7 @@ def main():
 
     sender = os.environ.get("SMTP_SENDER", "").strip()
     password = os.environ.get("SMTP_PASSWORD", "").strip()
-    recipient = os.environ.get("SMTP_RECIPIENT", sender).strip() or "tmtien35@gmail.com"
+    recipient = os.environ.get("SMTP_RECIPIENT", sender).strip() or sender
 
     print(f"📁 Working Directory : {os.getcwd()}")
     print(f"📬 Sender Email       : {sender if sender else '(NOT SET ❌)'}")
