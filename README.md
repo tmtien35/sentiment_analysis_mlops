@@ -78,18 +78,23 @@ flowchart TD
    * Lấy các review thuộc ngày bị drift, tự động gán nhãn dự phòng.
    * **Gộp toàn bộ dữ liệu mới này vào duy nhất tập Train** (tuyệt đối không làm thay đổi tập `val_df` để chống rò rỉ dữ liệu).
 3. **Huấn luyện mô hình ứng viên (Candidate):** Học lại bộ từ vựng TF-IDF và thuật toán phân loại trên tập Train đã mở rộng.
-4. **Kiểm tra Gatekeeper & Smart Rejection:**
+4. **Kiểm tra Gatekeeper Khắt Khe & Smart Rejection (Strict Improvement Rule):**
    * Cho mô hình mới dự đoán trên tập `val_df` ➔ Ra điểm `Macro-F1 (New)`.
    * Tải mô hình `@champion` đang phục vụ về, cho dự đoán trên cùng tập `val_df` ➔ Ra điểm `Macro-F1 (Champion)`.
-   * So sánh với `Macro-F1 (Champion)`:
-     * **🔴 KÉM HƠN CHAMPION:** Kích hoạt **Smart Rejection**. So sánh với Candidate đang có: nếu mô hình mới kém hơn Candidate hiện tại, hệ thống từ chối mô hình mới và bảo lưu Candidate mạnh nhất để không làm thụt lùi danh sách ứng viên.
-     * **🟢 VƯỢT TRỘI CHAMPION:** Đăng ký phiên bản mới lên MLflow, gán alias `@candidate` và đánh dấu tag `approval_status = "pending_human_approval"`. Mô hình **không tự động thăng hạng** nhằm đảm bảo an toàn tuyệt đối cho hệ thống phục vụ.
+   * So sánh điều kiện thăng tiến: **`Macro-F1 (New) > Macro-F1 (Champion) + 0.0001`**:
+     * **🔴 KÉM HƠN HOẶC BẰNG CHAMPION (TIE / DEGRADE):** Kích hoạt **Gatekeeper Rejection**. Mô hình bị chặn lập tức, gắn tag `gatekeeper_result = "failed"`, `approval_status = "rejected"`. Sinh báo cáo HTML sự cố tại `data/alerts/retrain_failed_*.html`. Alias `@champion` được bảo vệ an toàn tuyệt đối. Dashboard hiển thị thẻ cảnh báo đỏ kèm Bảng đối chiếu chỉ số (Side-by-Side Scorecard) để minh bạch lý do bị chặn.
+     * **🟢 VƯỢT TRỘI CHAMPION (STRICT IMPROVEMENT):** Đăng ký phiên bản mới lên MLflow, gán alias `@candidate` và đánh dấu tag `approval_status = "pending_human_approval"`, `gatekeeper_result = "passed"`. Mô hình **tuyệt đối KHÔNG tự động thăng hạng** nhằm đảm bảo an toàn vận hành (Zero Auto-Promotion Policy).
 
 #### Giai Đoạn 3: Phê Duyệt Con Người & Phân Luồng Canary (90/10)
-1. **Giao diện Phê duyệt trên Streamlit:** Khi Candidate đạt chuẩn, bảng điều khiển Streamlit hiển thị thẻ thông báo:
-   * **Nút "✅ Approve & Enable Canary (10% Traffic)":** Gán alias `@canary`, cập nhật bảng `system_settings` (`canary_enabled = 'true'`), và gửi tín hiệu cho FastAPI nạp mô hình Canary.
-   * **Nút "❌ Reject Contender":** Đóng ứng viên nếu có nghi vấn về chất lượng.
-2. **Phân Luồng Canary & Ghi Log An Toàn trên FastAPI:**
+1. **Bảng Đối Chiếu Chỉ Số Mô Hình (Side-by-Side Model Scorecard):** Hiển thị nổi bật ở khu vực Quản trị mô hình trên Streamlit Dashboard, so sánh chi tiết giữa Champion và Contender:
+   * **Validation Macro-F1** (kèm độ lệch $\Delta$ và quyết định Gatekeeper).
+   * **Accuracy, Macro-Precision, Macro-Recall**.
+   * **Kích thước tập huấn luyện** (số lượng mẫu dữ liệu mới được học).
+2. **Quyền Quyết Định Của Con Người (Human Approval Controls):**
+   * **Nút "✅ Approve & Enable Canary (10% Traffic)":** Gán alias `@canary`, kích hoạt phân luồng 10% lưu lượng thử nghiệm trên môi trường thật.
+   * **Nút "❌ Reject Contender":** Từ chối ứng viên nếu không đạt kỳ vọng chuyên gia, thu hồi alias `@candidate`.
+   * **Nút "⚠️ Break-Glass: Direct Promote to Champ 🏆":** Chế độ ghi đè khẩn cấp trong trường hợp sự cố đặc biệt.
+3. **Phân Luồng Canary & Ghi Log An Toàn trên FastAPI:**
    * Tự động điều phối ngẫu nhiên: **90% lưu lượng sang Champion** / **10% lưu lượng sang Canary**.
    * Đo lường thời gian đáp ứng `latency_ms` và ghi nhận `model_route` (`champion` hoặc `canary`) vào bảng `inference_logs` theo thời gian thực.
    * **Kiến trúc DDL an toàn & Idempotent:** Schema cơ sở dữ liệu được khởi tạo và di trú tự động ở vòng đời khởi động (`lifespan`) bằng cú pháp `ADD COLUMN IF NOT EXISTS`, loại bỏ hoàn toàn hiện tượng hủy giao dịch SQL (`transaction abort`) trên PostgreSQL, bảo đảm bản ghi suy luận xuất hiện tức thì trên giao diện giám sát.

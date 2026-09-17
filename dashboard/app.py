@@ -179,14 +179,89 @@ def render_canary_governance_active(client, engine, df_logs, champion_version, c
             except Exception as ex:
                 st.error(f"Error: {ex}")
 
-def render_canary_governance_pending(client, engine, champion_version, candidate_version, champ_metrics, cand_metrics):
+def render_model_scorecard(champ_ver, champ_m, champ_p, target_ver, target_m, target_p, target_role="Contender", gatekeeper_passed=True):
+    """Renders a comprehensive side-by-side metric scorecard table comparing Champion vs Target model."""
+    c_f1 = champ_m.get("macro_f1", 0.0)
+    t_f1 = target_m.get("macro_f1", 0.0)
+    delta_f1 = t_f1 - c_f1
+
+    c_acc = champ_m.get("accuracy", 0.0) * 100.0
+    t_acc = target_m.get("accuracy", 0.0) * 100.0
+    delta_acc = t_acc - c_acc
+
+    c_prec = champ_m.get("macro_precision", 0.0)
+    t_prec = target_m.get("macro_precision", 0.0)
+    delta_prec = t_prec - c_prec
+
+    c_rec = champ_m.get("macro_recall", 0.0)
+    t_rec = target_m.get("macro_recall", 0.0)
+    delta_rec = t_rec - c_rec
+
+    c_size = champ_p.get("train_dataset_size", "N/A")
+    t_size = target_p.get("train_dataset_size", "N/A")
+    try:
+        delta_size = f"{int(t_size) - int(c_size):+d} samples"
+    except Exception:
+        delta_size = "—"
+
+    gk_badge = "✅ Passed (> Champion)" if gatekeeper_passed else "❌ Blocked (<= Champion)"
+
+    scorecard_df = pd.DataFrame([
+        {
+            "Metric": "🎯 Validation Macro-F1",
+            f"🏆 Champion (v{champ_ver})": f"{c_f1:.4f}",
+            f"{'🥊' if gatekeeper_passed else '❌'} {target_role} (v{target_ver})": f"{t_f1:.4f}",
+            "Delta (Δ)": f"{delta_f1:+.4f}",
+            "Gatekeeper Decision": gk_badge
+        },
+        {
+            "Metric": "📊 Accuracy",
+            f"🏆 Champion (v{champ_ver})": f"{c_acc:.2f}%",
+            f"{'🥊' if gatekeeper_passed else '❌'} {target_role} (v{target_ver})": f"{t_acc:.2f}%",
+            "Delta (Δ)": f"{delta_acc:+.2f}%",
+            "Gatekeeper Decision": "✅ Improved" if delta_acc > 0 else ("➖ Tie" if delta_acc == 0 else "🔻 Lower")
+        },
+        {
+            "Metric": "⚖️ Macro-Precision",
+            f"🏆 Champion (v{champ_ver})": f"{c_prec:.4f}",
+            f"{'🥊' if gatekeeper_passed else '❌'} {target_role} (v{target_ver})": f"{t_prec:.4f}",
+            "Delta (Δ)": f"{delta_prec:+.4f}",
+            "Gatekeeper Decision": "—"
+        },
+        {
+            "Metric": "🔍 Macro-Recall",
+            f"🏆 Champion (v{champ_ver})": f"{c_rec:.4f}",
+            f"{'🥊' if gatekeeper_passed else '❌'} {target_role} (v{target_ver})": f"{t_rec:.4f}",
+            "Delta (Δ)": f"{delta_rec:+.4f}",
+            "Gatekeeper Decision": "—"
+        },
+        {
+            "Metric": "📚 Training Dataset Size",
+            f"🏆 Champion (v{champ_ver})": f"{c_size} samples" if c_size != "N/A" else "N/A",
+            f"{'🥊' if gatekeeper_passed else '❌'} {target_role} (v{target_ver})": f"{t_size} samples" if t_size != "N/A" else "N/A",
+            "Delta (Δ)": delta_size,
+            "Gatekeeper Decision": "—"
+        }
+    ])
+    st.table(scorecard_df)
+
+
+def render_canary_governance_pending(client, engine, champion_version, candidate_version, champ_metrics, cand_metrics, champ_params, cand_params):
     st.warning(f"🎉 **Contender Model Version {candidate_version} OUTPERFORMED Champion on Validation Set!**")
     st.markdown(f"""
-    * 🏆 **Champion Macro-F1 (v{champion_version}):** `{champ_metrics.get('macro_f1', 0.0):.4f}`
-    * 🥊 **Contender Macro-F1 (v{candidate_version}):** `{cand_metrics.get('macro_f1', 0.0):.4f}` *(+{(cand_metrics.get('macro_f1', 0.0) - champ_metrics.get('macro_f1', 0.0)):.4f})*
-    * 📋 **Policy:** New models are not auto-promoted. Human Approval required to safely enable 10% Canary Routing.
+    * 📋 **Enterprise MLOps Policy:** New models **NEVER** replace `@champion` automatically.
+    * 🏆 Production serving continues safely 100% on **@champion (v{champion_version})**.
+    * 🚦 Human Approval is required to test with Canary routing (10% traffic) or reject. Review the scorecard below:
     """)
-    col_can1, col_can2 = st.columns(2)
+
+    render_model_scorecard(
+        champion_version, champ_metrics, champ_params,
+        candidate_version, cand_metrics, cand_params,
+        target_role="Contender (Candidate)",
+        gatekeeper_passed=True
+    )
+
+    col_can1, col_can2, col_can3 = st.columns([1.5, 1.2, 1.5])
     with col_can1:
         if st.button("✅ Approve & Enable Canary (10% Traffic)", key="approve_canary_main_btn", type="primary", use_container_width=True):
             try:
@@ -215,16 +290,91 @@ def render_canary_governance_pending(client, engine, champion_version, candidate
                 st.rerun()
             except Exception as ex:
                 st.error(f"Error: {ex}")
+    with col_can3:
+        if st.button("⚠️ Break-Glass: Direct Promote to Champ 🏆", key="breakglass_pending_btn", help="Emergency manual override directly to 100% Champion bypassing Canary", use_container_width=True):
+            try:
+                client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=candidate_version)
+                client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="status", value="champion")
+                try:
+                    client.delete_registered_model_alias(name="ev-sentiment-model", alias="candidate")
+                except Exception:
+                    pass
+                with engine.begin() as conn:
+                    set_setting(conn, "canary_enabled", "false")
+                    set_setting(conn, "canary_version", "")
+                notify_api_reload()
+                st.success(f"🏆 Promoted Version {candidate_version} directly to @champion!")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as ex:
+                st.error(f"Error: {ex}")
 
-def render_canary_governance(client, engine, df_logs, champion_version, candidate_version, canary_version, has_candidate, has_canary, candidate_status, canary_is_enabled, champ_metrics, cand_metrics):
+def render_canary_governance_blocked(client, engine, champion_version, blocked_version, champ_metrics, blocked_metrics, champ_params, blocked_params, failure_html_files):
+    st.error(f"🛡️ **GATEKEEPER BLOCKED: Retrained Model (v{blocked_version}) REJECTED from Auto-Promotion!**")
+    st.markdown(f"""
+    * ❌ **Gatekeeper Policy:** New model did not outperform Champion on the fixed validation set (Macro-F1 $\\le$ Champion Macro-F1).
+    * 🛡️ **Zero Downtime / Regression Protection:** Serving continues safely 100% on **@champion (v{champion_version})**.
+    """)
+
+    render_model_scorecard(
+        champion_version, champ_metrics, champ_params,
+        blocked_version, blocked_metrics, blocked_params,
+        target_role="Blocked Model",
+        gatekeeper_passed=False
+    )
+
+    if failure_html_files:
+        with st.expander("📄 View Gatekeeper Rejection Incident Report (HTML)", expanded=False):
+            try:
+                with open(failure_html_files[0], "r", encoding="utf-8") as f:
+                    st.components.v1.html(f.read(), height=260)
+            except Exception as ex:
+                st.caption(f"Could not load HTML report: {ex}")
+
+    col_blk1, col_blk2 = st.columns([1, 1.5])
+    with col_blk1:
+        if st.button("🗑️ Acknowledge / Dismiss Alert", key="dismiss_blocked_btn", use_container_width=True):
+            import glob
+            for f in glob.glob(os.path.join("data", "alerts", "retrain_failed_*.html")):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
+            st.success("Gatekeeper alert cleared!")
+            st.cache_data.clear()
+            st.rerun()
+    with col_blk2:
+        if st.button("⚠️ Break-Glass: Force Promote Anyway 🏆", key="breakglass_blocked_btn", help="Emergency manual override if model contains vital knowledge despite lower F1", use_container_width=True):
+            try:
+                client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=blocked_version)
+                client.set_model_version_tag(name="ev-sentiment-model", version=blocked_version, key="status", value="champion")
+                with engine.begin() as conn:
+                    set_setting(conn, "canary_enabled", "false")
+                    set_setting(conn, "canary_version", "")
+                notify_api_reload()
+                st.warning(f"⚠️ Force-promoted v{blocked_version} to @champion!")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as ex:
+                st.error(f"Error: {ex}")
+
+def render_canary_governance(
+    client, engine, df_logs, champion_version, candidate_version, canary_version,
+    has_candidate, has_canary, candidate_status, canary_is_enabled,
+    champ_metrics, cand_metrics, champ_params, cand_params,
+    latest_blocked_version, latest_blocked_metrics, latest_blocked_params,
+    failure_html_files
+):
     st.markdown("---")
-    st.markdown("### 🚦 Human Approval & Canary Governance (Traffic Routing)")
+    st.markdown("### 🚦 Model Governance & Safe Deployment Gatekeeper")
     if has_canary and canary_is_enabled:
         render_canary_governance_active(client, engine, df_logs, champion_version, canary_version)
     elif has_candidate and candidate_status == "pending_human_approval":
-        render_canary_governance_pending(client, engine, champion_version, candidate_version, champ_metrics, cand_metrics)
+        render_canary_governance_pending(client, engine, champion_version, candidate_version, champ_metrics, cand_metrics, champ_params, cand_params)
+    elif latest_blocked_version and (failure_html_files or (not has_candidate and not has_canary and int(latest_blocked_version) > int(champion_version))):
+        render_canary_governance_blocked(client, engine, champion_version, latest_blocked_version, champ_metrics, latest_blocked_metrics, champ_params, latest_blocked_params, failure_html_files)
     else:
-        st.success(f"✅ **Serving Status:** 100% Champion (Version {champion_version}) — System running stably.")
+        st.success(f"✅ **Serving Status:** 100% Champion (Version {champion_version}) — System running stably. No contender pending approval.")
 
 
 
@@ -291,6 +441,14 @@ champ_params = {}
 cand_params = {}
 canary_params = {}
 
+latest_blocked_version = None
+latest_blocked_metrics = {}
+latest_blocked_params = {}
+
+import glob
+failed_reports = sorted(glob.glob(os.path.join("data", "alerts", "retrain_failed_*.html")), reverse=True)
+has_gatekeeper_failure = len(failed_reports) > 0
+
 canary_is_enabled = False
 try:
     with engine.connect() as conn:
@@ -347,6 +505,21 @@ try:
             cand_params = cand_run.data.params
     except Exception:
         pass
+
+    # Check for latest rejected / blocked model version (if any)
+    try:
+        all_versions = client.search_model_versions("name='ev-sentiment-model'")
+        if all_versions:
+            sorted_mvs = sorted(all_versions, key=lambda x: int(x.version), reverse=True)
+            for mv in sorted_mvs:
+                if mv.tags.get("gatekeeper_result") == "failed" or mv.tags.get("approval_status") in ("rejected", "contender_runner_up"):
+                    latest_blocked_version = str(mv.version)
+                    b_run = client.get_run(mv.run_id)
+                    latest_blocked_metrics = b_run.data.metrics
+                    latest_blocked_params = b_run.data.params
+                    break
+    except Exception:
+        pass
 except Exception:
     pass
 
@@ -374,7 +547,7 @@ if has_candidate:
     status_label = "Pending Canary Approval" if candidate_status == "pending_human_approval" else "Contender"
     st.sidebar.markdown(f"🥊 **Contender Model:** `Version {candidate_version}` *({status_label})*")
     
-    with st.sidebar.expander("⚖️ Champion vs Contender Comparison", expanded=True):
+    with st.sidebar.expander("⚖️ Champion vs Contender Summary", expanded=False):
         champ_f1 = champ_metrics.get("macro_f1", 0.0)
         cand_f1 = cand_metrics.get("macro_f1", 0.0)
         champ_size = champ_params.get("train_dataset_size", "N/A")
@@ -391,7 +564,7 @@ if has_candidate:
         """)
         
         if candidate_status == "pending_human_approval":
-            st.success("🎉 Contender outperformed Champion! Scroll down to the Gatekeeper section to enable 10% Canary.")
+            st.info("🎉 Contender outperformed Champion! Review & approve in the Governance Panel.")
         
         if st.button("⚠️ Break-Glass: Force Promote to Champion 🏆", key="force_promote_btn", type="primary"):
             try:
@@ -409,6 +582,9 @@ if has_candidate:
                 st.rerun()
             except Exception as e:
                 st.error(f"Promotion error: {e}")
+elif latest_blocked_version and (has_gatekeeper_failure or (champion_version != "None" and int(latest_blocked_version) > int(champion_version))):
+    st.sidebar.markdown(f"🛡️ **Latest Retrain:** `Version {latest_blocked_version}` *(Rejected)*")
+    st.sidebar.caption("❌ Gatekeeper blocked promotion: did not beat Champion F1.")
 else:
     st.sidebar.markdown("🥊 **Contender Model:** *None (System Optimal)*")
 
@@ -453,8 +629,7 @@ if st.sidebar.button("Trigger Retrain Manual"):
         try:
             res = subprocess.run([sys.executable, "ml/train_model.py"], env=env, capture_output=True, text=True)
             if res.returncode == 0:
-                notify_api_reload()
-                st.sidebar.success("🏆 Retraining Completed & Serving Models Hot-Reloaded!")
+                st.sidebar.info("🧠 Retraining finished! Check Gatekeeper scorecard in Governance Panel.")
                 st.cache_data.clear()
                 st.rerun()
             else:
@@ -519,6 +694,16 @@ else:
             st.metric("Drift Status", "⚠️ DRIFT MUTED", delta=f"PSI: {latest_psi:.3f} (Muted)", delta_color="off")
         else:
             st.metric("Drift Status", "✅ STABLE", delta=f"PSI: {latest_psi:.3f}")
+
+    # Render Enterprise Governance & Safe Model Gatekeeper Panel
+    render_canary_governance(
+        client, engine, df_logs, champion_version, candidate_version, canary_version,
+        has_candidate, has_canary, candidate_status, canary_is_enabled,
+        champ_metrics, cand_metrics, champ_params, cand_params,
+        latest_blocked_version, latest_blocked_metrics, latest_blocked_params,
+        failed_reports
+    )
+
 
     st.markdown("### 📊 Live Analytics Dashboard")
     col_chart1, col_chart2 = st.columns(2)
@@ -614,11 +799,6 @@ else:
         use_container_width=True
     )
 
-    # Render Enterprise Canary Governance & Approval Panel
-    render_canary_governance(
-        client, engine, df_logs, champion_version, candidate_version, canary_version,
-        has_candidate, has_canary, candidate_status, canary_is_enabled, champ_metrics, cand_metrics
-    )
 
 
 

@@ -72,7 +72,19 @@ def load_champion_model_robust(project_root=None):
     except Exception as e_champ:
         print(f"Notice [Tier 1]: MLflow registry alias '@champion' failed ({e_champ}).")
 
-    # Tier 2: Try latest registered model version from MLflow Registry
+    # Tier 2: Direct Persistent Binary Artifact (data/champion_model.pkl)
+    pkl_path = root / "data" / "champion_model.pkl"
+    if pkl_path.exists():
+        try:
+            with open(pkl_path, "rb") as f:
+                model = pickle.load(f)
+            if hasattr(model, "predict_proba"):
+                print(f"✅ Tier 2: Loaded Champion model from persistent binary artifact: {pkl_path}")
+                return model
+        except Exception as e_pkl:
+            print(f"Notice [Tier 2]: Failed to unpickle {pkl_path}: {e_pkl}")
+
+    # Tier 3: Try latest registered model version from MLflow Registry (read-only fallback)
     try:
         from mlflow.tracking import MlflowClient
         client = MlflowClient(tracking_uri=tracking_uri)
@@ -81,26 +93,10 @@ def load_champion_model_robust(project_root=None):
             latest_v = max(int(v.version) for v in versions)
             model = mlflow.sklearn.load_model(f"models:/ev-sentiment-model/{latest_v}")
             if hasattr(model, "predict_proba"):
-                print(f"✅ Tier 2: Loaded latest registered model v{latest_v} from MLflow Registry.")
-                try:
-                    client.set_registered_model_alias("ev-sentiment-model", "champion", str(latest_v))
-                except Exception:
-                    pass
+                print(f"✅ Tier 3: Loaded model v{latest_v} from MLflow Registry as fallback.")
                 return model
     except Exception as e_reg:
-        print(f"Notice [Tier 2]: MLflow registry version fallback failed ({e_reg}).")
-
-    # Tier 3: Direct Persistent Binary Artifact (data/champion_model.pkl)
-    pkl_path = root / "data" / "champion_model.pkl"
-    if pkl_path.exists():
-        try:
-            with open(pkl_path, "rb") as f:
-                model = pickle.load(f)
-            if hasattr(model, "predict_proba"):
-                print(f"✅ Tier 3: Loaded Champion model from persistent binary artifact: {pkl_path}")
-                return model
-        except Exception as e_pkl:
-            print(f"Notice [Tier 3]: Failed to unpickle {pkl_path}: {e_pkl}")
+        print(f"Notice [Tier 3]: MLflow registry version fallback failed ({e_reg}).")
 
     # Tier 4: Portable Relative Filesystem Resolution from mlruns using champion metadata from SQLite
     db_path = root / "data" / "mlflow.db"
@@ -120,10 +116,13 @@ def load_champion_model_robust(project_root=None):
                     pass
             
             if not champ_ver:
-                c.execute("SELECT MAX(CAST(version AS INTEGER)) FROM model_versions WHERE name='ev-sentiment-model'")
-                row = c.fetchone()
-                if row and row[0]:
-                    champ_ver = row[0]
+                try:
+                    c.execute("SELECT version FROM model_version_tags WHERE name='ev-sentiment-model' AND key='status' AND value='champion'")
+                    row = c.fetchone()
+                    if row and row[0]:
+                        champ_ver = row[0]
+                except Exception:
+                    pass
 
             if champ_ver:
                 c.execute("SELECT source, run_id FROM model_versions WHERE name='ev-sentiment-model' AND version=?", (champ_ver,))
