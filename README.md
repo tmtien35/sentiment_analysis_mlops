@@ -578,6 +578,14 @@ rm -rf mlflow.db
        - **Tier 4 & 5:** Tự động phân giải artifact trong `mlruns/` thông qua siêu dữ liệu `mlflow.db` hoặc quét `model.pkl`.
     4. **Tự động phục hồi (Self-Healing):** `batch_scoring.py` tự động phát hiện và chấm điểm lại các bản ghi cũ bị gán nhầm `0.6` / `0.9` về xác suất thực tế `predict_proba()` của mô hình Champion.
 
+### ⏰ 5. Đồng Bộ Múi Giờ Việt Nam & Chuẩn Hóa Nhãn Mẻ Chạy Airflow (`Asia/Ho_Chi_Minh`)
+*   **Vấn đề:** 
+    1. Theo mặc định, Airflow chạy trên múi giờ quốc tế `UTC`, nên mẻ tự động kích hoạt lúc nửa đêm `00:00 UTC` sẽ tương ứng với `07:00 sáng` giờ Việt Nam trên MLflow, gây nhầm lẫn về thời gian thực tế.
+    2. Airflow mặc định gán nhãn mẻ chạy theo đầu chu kỳ ngày hôm trước (`scheduled__2026-09-16`), dẫn đến việc mẻ tự động chạy rạng sáng ngày 17/9 lại bị đè hiển thị bởi mẻ bấm tay ngày 16/9 trên trang chủ.
+*   **Giải pháp đã cấu hình:**
+    1. **Đồng bộ Múi giờ Việt Nam trên toàn bộ Container:** Cấu hình `AIRFLOW__CORE__DEFAULT_TIMEZONE: "Asia/Ho_Chi_Minh"`, `AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: "Asia/Ho_Chi_Minh"`, và `TZ: "Asia/Ho_Chi_Minh"` trong `docker-compose.yml`. Mọi mốc thời gian trên UI, Scheduler và Log đều hiển thị chuẩn xác theo giờ Việt Nam (GMT+7).
+    2. **Đồng bộ Ngày Kích Hoạt Thực Tế:** Trong `airflow_home/dags/daily_sentiment_dag.py`, chuẩn hóa tham số truyền ngày `BATCH_DATE_TEMPLATE = "{{ (data_interval_end | ds) if data_interval_end is defined and data_interval_end else ds }}"`. Nhờ đó, mẻ chạy ngày nào sẽ mang đúng ngày thực tế đó, triệt tiêu hoàn toàn sự lệch ngày gây khó hiểu khi theo dõi.
+
 ---
 
 ### ⚠️ CẢNH BÁO QUAN TRỌNG VỀ XUNG ĐỘT CỔNG (PORT CONFLICT)
