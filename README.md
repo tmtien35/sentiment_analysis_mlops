@@ -346,9 +346,13 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
 *   **Địa chỉ truy cập trên trình duyệt:**
     *   **Bảng điều khiển Streamlit:** [http://localhost:8501](http://localhost:8501)
     *   **Tài liệu API Swagger FastAPI:** [http://localhost:8000/docs](http://localhost:8000/docs)
-*   **Các lệnh thực thi từng bước riêng lẻ (khi cần phát triển sâu):**
+*   **Các lệnh thực thi từng bước riêng lẻ (khi cần phát triển sâu & quay video demo):**
     *   *Nạp dữ liệu lịch sử:* `python data/ingest_pipeline.py --backfill`
     *   *Gửi đánh giá tương tác CLI:* `python data/submit_review.py`
+    *   *Giả lập trôi dạt dữ liệu liên tiếp (Persistent Drift) & Auto-Retrain:*
+        *   Chạy 2 ngày liên tiếp: `python data/simulate_drift.py --start-date 2026-09-25 --days 2`
+        *   Chạy ngày cụ thể: `python data/simulate_drift.py --date 2026-09-25`
+        *   Dọn dẹp sạch dữ liệu mô phỏng: `python data/simulate_drift.py --clean`
     *   *Huấn luyện & tuyển chọn Champion:* `python ml/train_model.py`
     *   *Chạy kiểm thử tự động:* `python -m pytest ml/test_pipeline.py`
 *   **Cách dừng hoạt động an toàn:** Nhấn tổ hợp phím **`[Ctrl + C]`** trong cửa sổ dòng lệnh. Toàn bộ tiến trình sẽ dừng và giải phóng cổng ngay lập tức.
