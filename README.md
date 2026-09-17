@@ -93,7 +93,8 @@ flowchart TD
 2. **Quyền Quyết Định Của Con Người (Human Approval Controls):**
    * **Nút "✅ Approve & Enable Canary (10% Traffic)":** Gán alias `@canary`, kích hoạt phân luồng 10% lưu lượng thử nghiệm trên môi trường thật.
    * **Nút "❌ Reject Contender":** Từ chối ứng viên nếu không đạt kỳ vọng chuyên gia, thu hồi alias `@candidate`.
-   * **Nút "⚠️ Break-Glass: Direct Promote to Champ 🏆":** Chế độ ghi đè khẩn cấp trong trường hợp sự cố đặc biệt.
+   * **Nút "⚠️ Break-Glass: Direct Promote to Champ 🏆 / Force Promote Anyway":** Chế độ ghi đè khẩn cấp theo chuẩn Enterprise Audit Trail. Tự động thăng cấp phiên bản thành `@champion`, cập nhật đồng bộ các tag kiểm định (`approval_status="champion"`, `gatekeeper_result="overridden_by_admin"`), gỡ bỏ cảnh báo sự cố, và thông báo FastAPI reload ngay lập tức.
+   * **Nút "🗑️ Acknowledge / Dismiss Alert":** Dành cho mô hình bị Gatekeeper chặn (Rejection). Khi bấm, ghi nhận tag `gatekeeper_dismissed="true"`, dọn dẹp file báo cáo HTML và lưu trạng thái vào cơ sở dữ liệu `system_settings` giúp ẩn thẻ cảnh báo đỏ, đưa giao diện trở lại trạng thái phục vụ ổn định (`100% Champion`).
 3. **Phân Luồng Canary & Ghi Log An Toàn trên FastAPI:**
    * Tự động điều phối ngẫu nhiên: **90% lưu lượng sang Champion** / **10% lưu lượng sang Canary**.
    * Đo lường thời gian đáp ứng `latency_ms` và ghi nhận `model_route` (`champion` hoặc `canary`) vào bảng `inference_logs` theo thời gian thực.

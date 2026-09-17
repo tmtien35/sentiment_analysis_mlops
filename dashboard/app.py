@@ -144,6 +144,8 @@ def render_canary_governance_active(client, engine, df_logs, champion_version, c
             try:
                 client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=canary_version)
                 client.set_model_version_tag(name="ev-sentiment-model", version=canary_version, key="status", value="champion")
+                client.set_model_version_tag(name="ev-sentiment-model", version=canary_version, key="approval_status", value="champion")
+                client.set_model_version_tag(name="ev-sentiment-model", version=canary_version, key="gatekeeper_result", value="passed_promoted")
                 with engine.begin() as conn:
                     set_setting(conn, "canary_enabled", "false")
                     set_setting(conn, "canary_version", "")
@@ -156,7 +158,7 @@ def render_canary_governance_active(client, engine, df_logs, champion_version, c
                 except Exception:
                     pass
                 notify_api_reload()
-                st.success(f"🏆 Successfully promoted Version {canary_version} to @champion (100% Traffic)!")
+                st.toast(f"🏆 Successfully promoted Version {canary_version} to @champion (100% Traffic)!", icon="🏆")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as ex:
@@ -295,6 +297,8 @@ def render_canary_governance_pending(client, engine, champion_version, candidate
             try:
                 client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=candidate_version)
                 client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="status", value="champion")
+                client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="approval_status", value="champion")
+                client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="gatekeeper_result", value="passed_promoted")
                 try:
                     client.delete_registered_model_alias(name="ev-sentiment-model", alias="candidate")
                 except Exception:
@@ -303,7 +307,7 @@ def render_canary_governance_pending(client, engine, champion_version, candidate
                     set_setting(conn, "canary_enabled", "false")
                     set_setting(conn, "canary_version", "")
                 notify_api_reload()
-                st.success(f"🏆 Promoted Version {candidate_version} directly to @champion!")
+                st.toast(f"🏆 Promoted Version {candidate_version} directly to @champion!", icon="🏆")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as ex:
@@ -340,7 +344,16 @@ def render_canary_governance_blocked(client, engine, champion_version, blocked_v
                     os.remove(f)
                 except Exception:
                     pass
-            st.success("Gatekeeper alert cleared!")
+            try:
+                client.set_model_version_tag(name="ev-sentiment-model", version=blocked_version, key="gatekeeper_dismissed", value="true")
+            except Exception:
+                pass
+            try:
+                with engine.begin() as conn:
+                    set_setting(conn, "dismissed_gatekeeper_version", str(blocked_version))
+            except Exception:
+                pass
+            st.toast("Gatekeeper alert acknowledged and dismissed!", icon="🗑️")
             st.cache_data.clear()
             st.rerun()
     with col_blk2:
@@ -348,11 +361,27 @@ def render_canary_governance_blocked(client, engine, champion_version, blocked_v
             try:
                 client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=blocked_version)
                 client.set_model_version_tag(name="ev-sentiment-model", version=blocked_version, key="status", value="champion")
+                client.set_model_version_tag(name="ev-sentiment-model", version=blocked_version, key="approval_status", value="champion")
+                client.set_model_version_tag(name="ev-sentiment-model", version=blocked_version, key="gatekeeper_result", value="overridden_by_admin")
+                client.set_model_version_tag(name="ev-sentiment-model", version=blocked_version, key="gatekeeper_dismissed", value="true")
+                try:
+                    cand = client.get_model_version_by_alias("ev-sentiment-model", "candidate")
+                    if str(cand.version) == str(blocked_version):
+                        client.delete_registered_model_alias(name="ev-sentiment-model", alias="candidate")
+                except Exception:
+                    pass
+                import glob
+                for f in glob.glob(os.path.join("data", "alerts", "retrain_failed_*.html")):
+                    try:
+                        os.remove(f)
+                    except Exception:
+                        pass
                 with engine.begin() as conn:
                     set_setting(conn, "canary_enabled", "false")
                     set_setting(conn, "canary_version", "")
+                    set_setting(conn, "dismissed_gatekeeper_version", str(blocked_version))
                 notify_api_reload()
-                st.warning(f"⚠️ Force-promoted v{blocked_version} to @champion!")
+                st.toast(f"⚠️ Force-promoted v{blocked_version} to @champion!", icon="🏆")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as ex:
@@ -371,7 +400,7 @@ def render_canary_governance(
         render_canary_governance_active(client, engine, df_logs, champion_version, canary_version)
     elif has_candidate and candidate_status == "pending_human_approval":
         render_canary_governance_pending(client, engine, champion_version, candidate_version, champ_metrics, cand_metrics, champ_params, cand_params)
-    elif latest_blocked_version and (failure_html_files or (not has_candidate and not has_canary and int(latest_blocked_version) > int(champion_version))):
+    elif latest_blocked_version and str(latest_blocked_version) != str(champion_version) and (failure_html_files or (not has_candidate and not has_canary and int(latest_blocked_version) > int(champion_version))):
         render_canary_governance_blocked(client, engine, champion_version, latest_blocked_version, champ_metrics, latest_blocked_metrics, champ_params, latest_blocked_params, failure_html_files)
     else:
         st.success(f"✅ **Serving Status:** 100% Champion (Version {champion_version}) — System running stably. No contender pending approval.")
@@ -450,9 +479,11 @@ failed_reports = sorted(glob.glob(os.path.join("data", "alerts", "retrain_failed
 has_gatekeeper_failure = len(failed_reports) > 0
 
 canary_is_enabled = False
+dismissed_gatekeeper_version = ""
 try:
     with engine.connect() as conn:
         canary_is_enabled = get_setting(conn, "canary_enabled", "false").lower() == "true"
+        dismissed_gatekeeper_version = get_setting(conn, "dismissed_gatekeeper_version", "")
 except Exception:
     pass
 
@@ -512,6 +543,12 @@ try:
         if all_versions:
             sorted_mvs = sorted(all_versions, key=lambda x: int(x.version), reverse=True)
             for mv in sorted_mvs:
+                # Never treat the active champion as blocked!
+                if champion_version and str(mv.version) == str(champion_version):
+                    continue
+                # Skip if already dismissed by admin
+                if mv.tags.get("gatekeeper_dismissed") == "true" or (dismissed_gatekeeper_version and str(mv.version) == str(dismissed_gatekeeper_version)):
+                    continue
                 if mv.tags.get("gatekeeper_result") == "failed" or mv.tags.get("approval_status") in ("rejected", "contender_runner_up"):
                     latest_blocked_version = str(mv.version)
                     b_run = client.get_run(mv.run_id)
@@ -520,6 +557,9 @@ try:
                     break
     except Exception:
         pass
+
+    # Update has_gatekeeper_failure only if there is a real blocked version that is NOT champion
+    has_gatekeeper_failure = bool(failed_reports and latest_blocked_version and str(latest_blocked_version) != str(champion_version))
 except Exception:
     pass
 
@@ -570,6 +610,8 @@ if has_candidate:
             try:
                 client.set_registered_model_alias(name="ev-sentiment-model", alias="champion", version=candidate_version)
                 client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="status", value="champion")
+                client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="approval_status", value="champion")
+                client.set_model_version_tag(name="ev-sentiment-model", version=candidate_version, key="gatekeeper_result", value="passed_promoted")
                 try:
                     client.delete_registered_model_alias(name="ev-sentiment-model", alias="candidate")
                 except Exception:
@@ -578,11 +620,11 @@ if has_candidate:
                     set_setting(conn, "canary_enabled", "false")
                     set_setting(conn, "canary_version", "")
                 notify_api_reload()
-                st.success(f"Successfully force-promoted Version {candidate_version} to @champion!")
+                st.toast(f"Successfully force-promoted Version {candidate_version} to @champion!", icon="🏆")
                 st.rerun()
             except Exception as e:
                 st.error(f"Promotion error: {e}")
-elif latest_blocked_version and (has_gatekeeper_failure or (champion_version != "None" and int(latest_blocked_version) > int(champion_version))):
+elif latest_blocked_version and str(latest_blocked_version) != str(champion_version) and (has_gatekeeper_failure or (champion_version != "None" and int(latest_blocked_version) > int(champion_version))):
     st.sidebar.markdown(f"🛡️ **Latest Retrain:** `Version {latest_blocked_version}` *(Rejected)*")
     st.sidebar.caption("❌ Gatekeeper blocked promotion: did not beat Champion F1.")
 else:
