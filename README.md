@@ -17,7 +17,7 @@ flowchart TD
     
     D -- "Không (Hệ thống ổn định)" --> END["🏁 Hoàn tất Task 2:<br/>- Ghi drift_metrics vào SQL<br/>- Khóa trạng thái is_processed = 1<br/>- Ghi Run Batch_{ds} lên MLflow"]
     
-    D -- "Có (Phát hiện Drift!)" --> CHK_PERSIST{"🚨 Kiểm tra Persistent Drift?<br/>(PSI ≥ 0.25 HOẶC ≥ 2 ngày trôi dạt)"}
+    D -- "Có (Phát hiện Drift!)" --> CHK_PERSIST{"🚨 Kiểm tra Persistent Drift?<br/>(≥ 2 ngày trôi dạt liên tiếp với PSI ≥ 0.15)"}
     
     CHK_PERSIST -- "Không (Drift nhất thời - Ngày 1)" --> DEF["ℹ️ Hoãn Retrain (Theo dõi tích lũy):<br/>- Ghi cảnh báo HTML vào data/alerts/<br/>- Giữ an toàn tài nguyên tính toán"] --> END
     
@@ -65,9 +65,8 @@ flowchart TD
    * **Kiểm tra trôi dạt (Data Drift PSI):**
      * **Nếu PSI < 0.15:** Ổn định ➔ Bỏ qua huấn luyện lại ➔ Hoàn tất mẻ chạy.
      * **Nếu PSI ≥ 0.15:** Đánh giá tính chất **Persistent Drift (Trôi dạt kéo dài)**:
-       * **Quy tắc 1 (Cấp tính):** PSI ≥ 0.25 ➔ Trôi dạt cấp tính nghiêm trọng, kích hoạt huấn luyện lại ngay.
-       * **Quy tắc 2 (Kéo dài):** Truy vấn lịch sử `drift_metrics`. Nếu mẻ liền trước cũng bị drift ➔ Xác nhận trôi dạt kéo dài qua nhiều mẻ, kích hoạt huấn luyện lại.
-       * **Nếu chỉ là Drift đột biến đơn lẻ (Ngày 1 và PSI < 0.25):** Xuất cảnh báo HTML quan sát, **hoãn huấn luyện lại** để tiết kiệm tài nguyên.
+       * **Quy tắc trôi dạt 2 ngày liên tiếp:** Truy vấn lịch sử `drift_metrics`. Nếu mẻ liền trước cũng bị drift ($\text{PSI} \ge 0.15$) ➔ Xác nhận trôi dạt kéo dài qua 2 ngày liên tiếp, tự động kích hoạt huấn luyện lại.
+       * **Nếu chỉ là Drift đột biến đơn lẻ (Ngày 1):** Xuất cảnh báo HTML quan sát, **hoãn huấn luyện lại** để theo dõi tích lũy và tiết kiệm tài nguyên máy chủ.
 
 #### Giai Đoạn 2: Huấn Luyện Lại & Chốt Chặn Gatekeeper (Smart Rejection)
 1. **Chia dữ liệu cố định:** Tải bộ 1,570 đánh giá xe điện chuẩn (`data/ev_reviews_vietnam_1529_cleaned.csv`), dùng hạt giống cố định (`random_state=42`) để tách:
@@ -682,7 +681,7 @@ Mô hình Champion (`ml/train_model.py`) được quản trị vòng đời và 
 
 Không dừng lại ở việc phát hiện trôi dạt dữ liệu cơ bản như các đồ án học thuật thông thường, hệ thống được trang bị các tính năng chuyên sâu chuẩn doanh nghiệp:
 
-*   **Kiểm Tra Trôi Dạt Dữ Liệu Bền Vững (Persistent Drift Monitoring):** Thay vì tái huấn luyện ngay khi chỉ có 1 ngày $PSI \ge 0.15$ (dễ dính báo động giả do nhiễu mẫu ngẫu nhiên ngắn hạn), Airflow chỉ kích hoạt Self-Healing khi phát hiện trôi dạt tích lũy kéo dài ($\ge 2$ ngày trôi dạt) hoặc đột biến cực đoan ($PSI \ge 0.25$). Với các đột biến đơn lẻ ngắn hạn, hệ thống xuất cảnh báo theo dõi HTML để tối ưu hóa chi phí tài nguyên máy chủ.
+*   **Kiểm Tra Trôi Dạt Dữ Liệu Bền Vững (Persistent Drift Monitoring):** Thay vì tái huấn luyện vội vã ngay khi chỉ có 1 ngày $PSI \ge 0.15$ (dễ dính báo động giả do nhiễu mẫu ngẫu nhiên ngắn hạn), Airflow chỉ kích hoạt Self-Healing khi phát hiện trôi dạt tích lũy kéo dài ($\ge 2$ ngày trôi dạt liên tiếp với $PSI \ge 0.15$). Với các đột biến đơn lẻ ngày đầu tiên, hệ thống xuất cảnh báo theo dõi HTML và hoãn retrain để tối ưu hóa chi phí tài nguyên máy chủ.
 *   **Cơ Chế Từ Chối Thông Minh (Smart Rejection):** Trong quá trình Gatekeeping, nếu mô hình mới có $F1_{\text{new}} < F1_{\text{champ}}$, hệ thống tự động đối chiếu với Contender hiện tại. Nếu kém hơn Contender đang có, mô hình mới bị từ chối và bảo lưu Candidate mạnh nhất để không làm thụt lùi danh sách ứng viên.
 *   **Chốt Chặn Phê Duyệt Con Người (Human Approval Gatekeeper):** Mô hình mới vượt qua Champion trên tập validation không được phép tự động đẩy lên phục vụ ngay mà chuyển vào trạng thái `pending_human_approval`. Bắt buộc kỹ sư/Admin thẩm định scorecard và bấm phê duyệt có ý thức trên UI trước khi đưa vào thử nghiệm thực tế.
 *   **Phân Luồng Canary An Toàn (FastAPI Canary Traffic Splitting 90/10):** Sau khi được phê duyệt, mô hình mới được gán alias `@canary` và FastAPI tự động điều phối 10% lưu lượng truy vấn thực tế sang Canary, 90% lưu lượng còn lại vẫn do `@champion` xử lý ổn định. Ghi nhận `latency_ms` và nhãn `model_route` vào cơ sở dữ liệu theo thời gian thực.

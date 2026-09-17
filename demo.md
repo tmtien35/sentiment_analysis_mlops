@@ -47,7 +47,74 @@ docker compose up -d --build
 
 ---
 
-## 🎭 Act I: Stable Operations & Live Customer Submission
+---
+
+## ⚡ QUICK DEMO: 3 Kịch Bản "Chuẩn MLOps" Cho Buổi Thuyết Trình & Video Ngắn (3 - 4 Phút)
+
+> 💡 **Dành cho thuyết trình cấp tốc, chấm điểm đồ án, hoặc quay video ngắn (TikTok / Reels / Elevator Pitch)**:  
+> Không cần kỹ thuật rườm rà, bạn chỉ cần mở sẵn 3 tab trình duyệt: **Airflow (`:8080`)**, **MLflow (`:5000`)**, và **Streamlit Dashboard (`:8501`)** để diễn trọn vẹn 3 kịch bản trọng tâm dưới đây:
+
+### ⏱️ Bảng Cheat Sheet "Bỏ Túi" (3 Phút Lên Sóng)
+
+| Thời Lượng | Kịch Bản & Trọng Tâm | Thao Tác Trực Tiếp Trên Web (1 - 2 Chạm) | Hiệu Ứng Trực Quan Tức Thì | Câu Chốt "Gây Ấn Tượng" (Punchline) |
+| :---: | :--- | :--- | :--- | :--- |
+| **0:00 - 1:00**<br/>*(60s)* | **1. Airflow Orchestration & Automated Batch Scoring** | Mở **Airflow (`:8080`)** bấm Trigger DAG `daily_sentiment_analysis`. | 1. **Airflow**: 2 Task xanh lá.<br/>2. **MLflow (`:5000`)**: Ghi nhận Run mới.<br/>3. **Streamlit (`:8501`)**: Batch mới hiện trên bảng & biểu đồ. | *"Hệ thống tự động cào dữ liệu và chấm điểm mẻ theo chu kỳ, lưu vết minh bạch 100% trên MLflow và cập nhật tức thì lên Dashboard."* |
+| **1:00 - 2:00**<br/>*(60s)* | **2. Persistent Drift (2 Ngày) & Non-Disruptive Auto-Retrain** | Mô phỏng 2 ngày drift liên tiếp (PSI $\ge$ 0.15) kích hoạt tự động retrain ngầm. | 1. **MLflow (`:5000`)**: Tạo Version mới mang nhãn `@candidate`.<br/>2. **Streamlit (`:8501`)**: Hiện trong **Gatekeeper**, giữ nguyên `@champion` chờ Engineer duyệt. | *"Khi khủng hoảng kéo dài 2 ngày, hệ thống tự học lại nhưng KHÔNG tự ý thay thế mô hình đang chạy mà dừng chờ kỹ sư phê duyệt."* |
+| **2:00 - 3:00**<br/>*(60s)* | **3. Active Learning Audit & Manual Retrain** | Trên Streamlit, sửa/duyệt reviews drift hoặc có độ tự tin thấp (`< 0.60`) rồi bấm **Trigger Retrain**. | 1. **MLflow (`:5000`)**: Sinh Version mới từ nhãn con người.<br/>2. **Streamlit (`:8501`)**: Xuất hiện trên bảng chờ duyệt, không đè mô hình cũ. | *"Chuyên viên chỉ cần sửa các ca khó nhất có độ tự tin thấp, mô hình tự học lại từ nhãn chuẩn và chỉ thăng hạng khi kỹ sư bấm duyệt."* |
+
+
+---
+
+### 🎬 Chi Tiết 3 Kịch Bản Trọng Tâm (Kèm Hướng Dẫn Thao Tác Chi Tiết)
+
+#### 🌟 KỊCH BẢN 1: Điều Phối Tự Động Hóa Với Airflow (Automated Daily Pipeline) (~1 phút)
+*   **Mục tiêu chứng minh:** Hệ thống vận hành tự động định kỳ (Scheduled Pipeline), điều phối tác vụ cào dữ liệu và chấm điểm mẻ theo kiến trúc Microservices độc lập, ghi vết minh bạch 100% trên MLflow và hiển thị trực quan trên Streamlit Dashboard.
+*   **Các bước thực hiện:**
+    1. Mở tab **Airflow UI (`http://localhost:8080`)**:
+       - Tìm DAG `daily_sentiment_analysis`, bấm nút **Play** (▶️ `Trigger DAG`).
+       - Quan sát đồ thị: Task 1 (`crawl_daily_ev_reviews`) kích hoạt cào 20 đánh giá xe điện mới và lưu vào cơ sở dữ liệu $\rightarrow$ chuyển sang màu xanh lá $\rightarrow$ Task 2 (`batch_scoring_and_drift_monitoring`) tự động chạy tiếp để chấm điểm mẻ và tính toán drift.
+    2. Chuyển sang tab **MLflow Tracking UI (`http://localhost:5000`)**:
+       - Bấm F5 tải lại trang: Thấy ngay một **Run mới** vừa được ghi log vào Experiment `ev-sentiment-batch-scoring` với đầy đủ tham số, chỉ số phân bổ cảm xúc và độ trễ.
+    3. Chuyển sang tab **Streamlit Dashboard (`http://localhost:8501`)**:
+       - Nhấn phím **`R`**: Mẻ dữ liệu ngày mới nhất lập tức xuất hiện trên bảng **Latest Scored Reviews** và biểu đồ phân bổ cảm xúc được cập nhật tức thì.
+*   **Câu nói dẫn dắt:**
+    > *"Hàng ngày lúc 00:00 (hoặc khi kích hoạt theo yêu cầu), Airflow tự động thu thập đánh giá xe điện mới và chấm điểm mẻ. Kết quả được lưu vết minh bạch 100% trên MLflow và trực quan hóa tức thì trên Dashboard cho ban vận hành theo dõi."*
+
+---
+
+#### 🌟 KỊCH BẢN 2: Tự Động Học Lại Khi Có Trôi Dạt Dữ Liệu (Persistent Drift & Non-Disruptive Auto-Retrain) (~1 phút)
+*   **Mục tiêu chứng minh:** Khả năng tự phục hồi (Self-Healing) thông minh của hệ thống: Chỉ kích hoạt Retrain khi phát hiện **2 ngày trôi dạt liên tiếp** (tránh báo động giả), và tuân thủ nghiêm ngặt nguyên tắc quản trị: **Mô hình mới KHÔNG tự ý thay thế mô hình đang chạy** mà phải dừng chờ kỹ sư phê duyệt.
+*   **Các bước thực hiện:**
+    1. Trên **Streamlit Dashboard (`http://localhost:8501`)**:
+       - Chỉ vào biểu đồ **Population Stability Index (PSI)**: Giải thích cơ chế lọc nhiễu Persistent Drift: *"Nếu chỉ lệch 1 ngày có thể do biến động nhất thời, nhưng khi phát hiện **2 ngày liên tiếp** có $\text{PSI} \ge 0.15$, hệ thống xác định có khủng hoảng thực sự và tự kích hoạt huấn luyện ngầm."*
+    2. Chuyển sang tab **MLflow Tracking UI (`http://localhost:5000`)**:
+       - Mở mục Models `ev-sentiment-model`: Thấy một **Version mới** vừa được tạo tự động, mang tag/alias `@candidate` (Ứng viên) chứ **KHÔNG** cướp nhãn `@champion`.
+    3. Quay lại **Streamlit Dashboard (`http://localhost:8501`)**:
+       - Cuộn đến khu vực **🛡️ Human Approval Gatekeeper**:
+       - Thấy mô hình mới xuất hiện trong bảng so sánh hiệu năng (Macro-F1, Accuracy) cạnh mô hình đương nhiệm, ở trạng thái: **`⏳ Awaiting Approval`** cùng nút bấm **`Approve to Champion`**.
+*   **Câu nói dẫn dắt:**
+    > *"Khi thị trường xuất hiện khủng hoảng kéo dài 2 ngày, hệ thống tự động phát hiện và huấn luyện mô hình mới trên MLflow. Tuy nhiên, theo chuẩn an toàn doanh nghiệp, mô hình mới không được tự ý đè mô hình đang phục vụ mà dừng ở trạng thái chờ kỹ sư phê duyệt trên Dashboard."*
+
+---
+
+#### 🌟 KỊCH BẢN 3: Con Người Thẩm Định & Tái Huấn Luyện Thủ Công (Active Learning & Manual Retrain) (~1 phút)
+*   **Mục tiêu chứng minh:** Vòng lặp phản hồi của con người (Human-in-the-Loop): Chuyên viên sửa nhãn cho các ca khó (Uncertainty Sampling) để làm giàu dữ liệu huấn luyện, sau đó kích hoạt Retrain thủ công và kiểm soát thăng hạng an toàn qua Gatekeeper.
+*   **Các bước thực hiện:**
+    1. Trên **Streamlit Dashboard (`http://localhost:8501`)**:
+       - Cuộn xuống bảng **🧠 Active Learning & Human-in-the-Loop Audit**.
+       - Giải thích cơ chế **Uncertainty Sampling**: Danh sách tự động ưu tiên lọc các đánh giá trong ngày bị drift hoặc những câu mà AI phân vân nhất (**độ tự tin < 0.60**).
+       - Thao tác: Sửa 1 nhãn trực tiếp trên bảng hoặc bấm **`✅ Bulk Approve Remaining AI Predictions`** $\rightarrow$ Bấm **`💾 Save`**.
+    2. Tại thanh bên (Sidebar):
+       - Bấm nút **`Trigger Retrain Manual`**: Hệ thống gom các nhãn chuẩn con người vừa duyệt trong PostgreSQL để huấn luyện lại mô hình mới trong tích tắc.
+    3. Kiểm tra kết quả trực quan:
+       - Mở **MLflow (`:5000`)**: Một **Version mới kế tiếp** được ghi nhận với nguồn dữ liệu từ Human Audit.
+       - Mở **Streamlit (`:8501`)**: Version mới này xuất hiện tại bảng **Human Approval Gatekeeper** để kỹ sư so sánh đối đầu trước khi quyết định bấm **`Approve to Champion`**.
+*   **Câu nói dẫn dắt:**
+    > *"Thay vì tốn kém gán nhãn hàng vạn mẫu, chuyên viên chỉ cần sửa các ca AI lúng túng nhất. Mô hình tự học lại ngay từ nhãn con người, được ghi nhận trên MLflow và chỉ được thăng hạng khi kỹ sư kiểm tra thấy hiệu năng thực sự cải thiện."*
+
+---
+
+## 🎭 Act I: Stable Operations & Live Customer Submission (Chi Tiết Dài Kỳ)
 
 ### **What to do:**
 1.  **Submit Customer Reviews (Interactive CLI):** Open a new terminal window (or GCP SSH) and run our storefront submitter app:
@@ -307,13 +374,11 @@ Tài liệu này được thiết kế dành riêng cho buổi báo cáo / bảo
     *   **Streamlit:** Bảng điều khiển phân tích trực quan kết hợp không gian thẩm định Human-in-the-Loop.
     *   **Tiền xử lý NLP tiếng Việt chuyên sâu:** Tích hợp bộ tách từ ghép **PyVi** (`ViTokenizer`), ghép các cụm từ chuyên ngành (*"tiết_kiệm", "sạc_lâu", "sụt_pin"*) giúp mô hình hiểu ngữ nghĩa sâu sắc mà không bị đánh lừa bởi từ ghép.
 
-#### **Phút 5 - 8: Trình Diễn Thực Tế (Live Demo 3 Hồi)**
-*   **Hồi 1 (Vận hành chuẩn):** Chạy `submit_review.py` nạp 2 review tích cực ➔ Chạy chấm điểm ➔ Streamlit báo `✅ STABLE` (PSI ~ 0).
-*   **Hồi 2 (Khủng hoảng & Tự phục hồi):** Nạp 10 đánh giá phàn nàn pin/lỗi ➔ Chạy chấm điểm ➔ PSI vọt lên ngưỡng đỏ ➔ Hệ thống tự động gửi Email cảnh báo qua SMTP ➔ Tự động kích hoạt Retrain ngầm và đẩy mô hình mới qua chốt chặn **Gatekeeper**.
-*   **Hồi 3 (Phản ứng sự cố & Con người can thiệp):**
-    *   Thao tác **Tắt báo động tạm thời** (`Acknowledge & Mute Alert`).
-    *   Thao tác **Cầu dao an toàn (Serving Circuit Breaker)**: Gạt sang `Rule-Based Fallback` để chứng minh API không bao giờ sập khi mô hình bảo trì.
-    *   Thao tác **Active Learning Audit**: Mở bảng thẩm định độ bất định (Uncertainty Sampling), sửa nhãn sai hoặc bấm duyệt hàng loạt có hộp thoại xác nhận an toàn.
+#### **Phút 5 - 8: Trình Diễn Thực Tế (Live Demo Cấp Tốc - 3 Kịch Bản Trọng Tâm)**
+*   *(Khuyến nghị: Áp dụng trực tiếp **3 Kịch Bản Chuẩn MLOps Cho Thời Đại Video Ngắn** ở phần đầu tài liệu để gây ấn tượng mạnh nhất)*:
+    1. **Chạm 1 (Phút 5:00): Điều Phối Tự Động Hóa Với Airflow** ➔ Mở Airflow (`:8080`) trigger DAG `daily_sentiment_analysis` ➔ Task 1 & 2 chạy xong xanh lá ➔ Show Run mới trên MLflow (`:5000`) & Batch mới cập nhật tức thì trên Streamlit (`:8501`).
+    2. **Chạm 2 (Phút 6:00): Persistent Drift (2 Ngày) & Non-Disruptive Auto-Retrain** ➔ Giới thiệu cơ chế 2 ngày drift liên tiếp (PSI $\ge$ 0.15) kích hoạt tự động retrain ngầm ➔ Show Version mới trên MLflow (`:5000`) & xuất hiện trên bảng **Gatekeeper** của Streamlit (`:8501`) ở trạng thái chờ duyệt, **KHÔNG tự ý thay thế `@champion`**.
+    3. **Chạm 3 (Phút 7:00): Active Learning Audit & Manual Retrain** ➔ Trên bảng Audit của Streamlit, sửa/duyệt reviews drift hoặc có độ tự tin thấp (`< 0.60`) ➔ Bấm `Trigger Retrain Manual` ➔ Show Version mới kế tiếp trên MLflow (`:5000`) & xuất hiện trên bảng **Gatekeeper** chờ kỹ sư đối soát chỉ số trước khi bấm Approve.
 
 #### **Phút 9 - 10: Kết Quả & Giá Trị Nghiệp Vụ (Business Impact & Conclusion)**
 *   **Độ chính xác:** Macro-F1 đạt **0.92** trên tập kiểm thử độc lập.

@@ -237,28 +237,24 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
     # --- CHECK RULES: PERSISTENT DRIFT EVALUATION ---
     is_persistent_drift = False
     if drift_detected:
-        if psi_score >= 0.25:
-            is_persistent_drift = True
-            print(f"🚨 [RULE TRIGGER] Acute drift detected with severe PSI={psi_score:.4f} >= 0.25! Persistent drift confirmed immediately.")
-        else:
-            try:
-                with engine.connect() as conn:
-                    res_prior = conn.execute(
-                        text("SELECT drift_detected, psi_score FROM drift_metrics WHERE batch_date < :ds ORDER BY batch_date DESC LIMIT 1"),
-                        {"ds": ds}
-                    )
-                    prior_row = res_prior.fetchone()
-                    if prior_row and prior_row[0] >= 1:
-                        is_persistent_drift = True
-                        print(f"🚨 [RULE TRIGGER] Persistent drift confirmed: Consecutive drift detected across historical batches.")
-                    else:
-                        print(f"ℹ️  [RULE TRIGGER] Isolated single-day drift spike (PSI={psi_score:.4f} < 0.25). Retraining deferred until persistent drift confirmed.")
-            except Exception as e_rule:
-                print(f" -> Error checking prior drift metrics: {e_rule}")
-                is_persistent_drift = True
+        try:
+            with engine.connect() as conn:
+                res_prior = conn.execute(
+                    text("SELECT drift_detected, psi_score FROM drift_metrics WHERE batch_date < :ds ORDER BY batch_date DESC LIMIT 1"),
+                    {"ds": ds}
+                )
+                prior_row = res_prior.fetchone()
+                if prior_row and prior_row[0] >= 1:
+                    is_persistent_drift = True
+                    print(f"🚨 [RULE TRIGGER] Persistent drift confirmed: Consecutive drift detected across >= 2 historical batches (prior day drift={prior_row[0]}, PSI={prior_row[1]:.4f}).")
+                else:
+                    print(f"ℹ️  [RULE TRIGGER] Isolated single-day drift spike (PSI={psi_score:.4f} >= 0.15). Retraining deferred until persistent drift (2 consecutive days) is confirmed.")
+        except Exception as e_rule:
+            print(f" -> Error checking prior drift metrics: {e_rule}")
+            is_persistent_drift = False
 
-        status_text = "Persistent Drift Confirmed (>= 2 days or PSI >= 0.25) - Retraining Triggered" if is_persistent_drift else "Isolated Drift Spike (Day 1) - Retraining Deferred"
-        action_text = "Retraining triggered automatically in the background. Serving continues safely on @champion." if is_persistent_drift else "Retraining deferred until persistent drift is confirmed across consecutive days."
+        status_text = "Persistent Drift Confirmed (>= 2 consecutive drift days with PSI >= 0.15) - Retraining Triggered" if is_persistent_drift else "Isolated Drift Spike (Day 1) - Retraining Deferred (Requires 2 consecutive drift days)"
+        action_text = "Retraining triggered automatically in the background. Serving continues safely on @champion." if is_persistent_drift else "Retraining deferred until persistent drift is confirmed across 2 consecutive days."
         html = f"""<div style="font-family:Arial;max-width:450px;border:1px solid #ddd;padding:15px;border-radius:8px;"><h2 style="color:#e74c3c;border-bottom:2px solid #e74c3c;padding-bottom:10px;">🚨 DATA DRIFT DETECTED</h2><p>Significant vocabulary shift detected on <b>{ds}</b>.</p><p><b>Status:</b> {status_text}</p><p><b>PSI Score:</b> <span style="color:#e74c3c;font-weight:bold;">{psi_score:.4f}</span> (Threshold: 0.1500)</p><p style="background:#fdf2f2;padding:10px;color:#9b1c1c;"><strong>{action_text}</strong></p><p style="text-align:center;"><a href="http://localhost:8501" style="background:#3498db;color:white;padding:8px 16px;text-decoration:none;font-weight:bold;border-radius:4px;">Open Streamlit</a></p></div>"""
         path = os.path.join(project_root, "data", "alerts")
         os.makedirs(path, exist_ok=True)
