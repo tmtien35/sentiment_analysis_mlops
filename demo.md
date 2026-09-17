@@ -31,6 +31,7 @@
 *   **Các bước thực hiện:**
     1. **Kích hoạt quy trình điều phối & chấm điểm mẻ (Automated Crawl & Batch Scoring):**
        * *Cách 1 (Giao diện Airflow UI):* Mở **Airflow (`http://localhost:8080`)**, bấm nút **Play** (▶️ `Trigger DAG`) trên DAG `daily_sentiment_analysis`. Quan sát 2 task `crawl_daily_ev_reviews` (tự cào 20 đánh giá mới vào `store_reviews`) và `batch_scoring_and_drift_monitoring` (chấm điểm mẻ & tính PSI) chuyển sang màu xanh lá.
+         *(💡 Mẹo hiển thị: Trên thanh điều hướng góc trên bên phải của Airflow, bạn có thể nhấp vào biểu tượng múi giờ và chọn `Asia/Ho_Chi_Minh` để đồng bộ hiển thị giờ Việt Nam. Mọi thao tác bấm Trigger đều tự động phân giải đúng ngày hiện tại ở Việt Nam).*
        * *Cách 2 (Dòng lệnh CLI):*
          - *Local:* `python data/ingest_pipeline.py --ingest`
          - *Docker:* `docker compose exec fastapi python data/ingest_pipeline.py --ingest`

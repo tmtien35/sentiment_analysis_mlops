@@ -68,7 +68,23 @@ def test_dag_and_scoring_syntax_check():
     parsed_scoring = ast.parse(scoring_code)
     assert parsed_scoring is not None, f"Failed to parse syntax for {scoring_path}"
     
-    print("AST verification passed for both Airflow orchestration files!")
+    # 3. Test date resolution logic from daily_sentiment_dag.py
+    func_node = next(n for n in parsed_dag.body if isinstance(n, ast.FunctionDef) and n.name == '_resolve_target_batch_date')
+    module_tree = ast.Module(body=[func_node], type_ignores=[])
+    ns = {}
+    exec(compile(module_tree, '<string>', 'exec'), ns)
+    resolver = ns['_resolve_target_batch_date']
+    
+    # 3a. Conf override test
+    class MockDagRun:
+        conf = {'ds': '2026-09-25'}
+    assert resolver(dag_run=MockDagRun()) == '2026-09-25'
+    
+    # 3b. Fallback timezone test (must return string in format YYYY-MM-DD)
+    res_date = resolver()
+    assert len(res_date) == 10 and res_date.count('-') == 2
+    
+    print("AST and execution date verification passed for Airflow orchestration files!")
 def test_persistent_drift_conditions():
     """
     Test 4: Verify Persistent Drift decision logic (Threshold = 0.15):

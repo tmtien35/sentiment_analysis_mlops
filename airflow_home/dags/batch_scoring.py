@@ -299,7 +299,12 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
         conn.execute(text("UPDATE store_reviews SET is_processed = 1 WHERE is_processed = 0 AND review_date = :ds"), {"ds": ds})
         
     print("Logging batch run to MLflow...")
-    timestamp_str = datetime.now().strftime("%H%M%S")
+    try:
+        from datetime import timezone, timedelta
+        vn_now = datetime.now(timezone(timedelta(hours=7)))
+        timestamp_str = vn_now.strftime("%H%M%S")
+    except Exception:
+        timestamp_str = datetime.now().strftime("%H%M%S")
     with mlflow.start_run(run_name=f"Batch_{ds}_{timestamp_str}"):
         mlflow.log_param("batch_date", ds)
         mlflow.log_metric("batch_row_count", cumulative_count)

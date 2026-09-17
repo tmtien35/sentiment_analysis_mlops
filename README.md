@@ -584,10 +584,14 @@ rm -rf mlflow.db
 ### ⏰ 5. Đồng Bộ Múi Giờ Việt Nam & Chuẩn Hóa Nhãn Mẻ Chạy Airflow (`Asia/Ho_Chi_Minh`)
 *   **Vấn đề:** 
     1. Theo mặc định, Airflow chạy trên múi giờ quốc tế `UTC`, nên mẻ tự động kích hoạt lúc nửa đêm `00:00 UTC` sẽ tương ứng với `07:00 sáng` giờ Việt Nam trên MLflow, gây nhầm lẫn về thời gian thực tế.
-    2. Airflow mặc định gán nhãn mẻ chạy theo đầu chu kỳ ngày hôm trước (`scheduled__2026-09-16`), dẫn đến việc mẻ tự động chạy rạng sáng ngày 17/9 lại bị đè hiển thị bởi mẻ bấm tay ngày 16/9 trên trang chủ.
+    2. Bộ lọc Jinja mặc định của Airflow (`| ds`) luôn định dạng chuỗi ngày theo UTC. Khi người dùng bấm "Trigger DAG" vào ban ngày ở Việt Nam (ví dụ 17:13 ngày 17/9), khoảng dữ liệu của Airflow kết thúc ở `17:00 UTC ngày 16/9`, khiến bộ lọc `| ds` trả về nhãn ngày hôm trước (`Batch_2026-09-16_...`) và chèn nhầm dữ liệu vào ngày 16/9.
+    3. Cột "Next Run" trên danh sách DAGs của Airflow 2 hiển thị thời điểm bắt đầu chu kỳ (`data_interval_start`), nếu UI hiển thị theo UTC sẽ in ra `2026-09-16, 17:00:00` (chính là 00:00:00 ngày 17/9 giờ Việt Nam).
 *   **Giải pháp đã cấu hình:**
-    1. **Đồng bộ Múi giờ Việt Nam trên toàn bộ Container:** Cấu hình `AIRFLOW__CORE__DEFAULT_TIMEZONE: "Asia/Ho_Chi_Minh"`, `AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: "Asia/Ho_Chi_Minh"`, và `TZ: "Asia/Ho_Chi_Minh"` trong `docker-compose.yml`. Mọi mốc thời gian trên UI, Scheduler và Log đều hiển thị chuẩn xác theo giờ Việt Nam (GMT+7).
-    2. **Đồng bộ Ngày Kích Hoạt Thực Tế:** Trong `airflow_home/dags/daily_sentiment_dag.py`, chuẩn hóa tham số truyền ngày `BATCH_DATE_TEMPLATE = "{{ (data_interval_end | ds) if data_interval_end is defined and data_interval_end else ds }}"`. Nhờ đó, mẻ chạy ngày nào sẽ mang đúng ngày thực tế đó, triệt tiêu hoàn toàn sự lệch ngày gây khó hiểu khi theo dõi.
+    1. **Đồng bộ Múi giờ Việt Nam trên toàn bộ Container:** Cấu hình `AIRFLOW__CORE__DEFAULT_TIMEZONE: "Asia/Ho_Chi_Minh"`, `AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: "Asia/Ho_Chi_Minh"`, và `TZ: "Asia/Ho_Chi_Minh"` trong `docker-compose.yml`. Mọi mốc thời gian trên UI, Scheduler và Log đều hiển thị chuẩn xác theo giờ Việt Nam (GMT+7). Trên giao diện web Airflow, người dùng có thể chọn múi giờ `Asia/Ho_Chi_Minh` ở góc trên bên phải để đồng bộ hiển thị.
+    2. **Bộ Giải Mã Ngày Thông Minh (`_resolve_target_batch_date`):** Thay vì phụ thuộc vào bộ lọc template `| ds` của Airflow, hàm `_resolve_target_batch_date` trong `airflow_home/dags/daily_sentiment_dag.py` tự động nhận diện ngữ cảnh:
+       - Ưu tiên ngày cụ thể nếu truyền qua tham số config (`dag_run.conf['ds']`).
+       - Với mẻ kích hoạt thủ công (Manual Trigger): Tự động chuyển đổi `logical_date` về múi giờ `Asia/Ho_Chi_Minh` (UTC+7), đảm bảo kích hoạt ngày 17/9 luôn sinh đúng batch ngày 17/9 (`Batch_2026-09-17_HHMMSS`).
+       - Dữ liệu thêm vào `store_reviews`, `predictions`, và `drift_metrics` mang chính xác ngày 17/9, triệt tiêu hoàn toàn sự lệch ngày giữa Airflow, MLflow và Streamlit.
 
 ---
 

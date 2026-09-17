@@ -32,7 +32,12 @@ def crawl_daily_reviews(ds: str = None, n_reviews: int = 20):
     not yet been ingested into store_reviews, assigning execution date ds (or today).
     """
     if ds is None:
-        ds = datetime.now().strftime("%Y-%m-%d")
+        try:
+            from datetime import timezone, timedelta
+            vn_now = datetime.now(timezone(timedelta(hours=7)))
+            ds = vn_now.strftime("%Y-%m-%d")
+        except Exception:
+            ds = datetime.now().strftime("%Y-%m-%d")
         
     print("================================================================")
     print(f"🌐  EV SCRAPER BOT (Simulated): Ingesting Daily Reviews for {ds}")
