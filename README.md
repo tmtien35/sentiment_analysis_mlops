@@ -452,7 +452,7 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
     *   **Khi phát hiện Data Drift (`psi_score >= 0.15`):**
         *   Tạo báo cáo cảnh báo HTML tại `data/alerts/drift_alert_<date>.html`.
         *   Gửi email cảnh báo thời gian thực qua Gmail SMTP (nếu cấu hình `SMTP_PASSWORD`).
-        *   **Cơ chế Tự phục hồi (Self-Healing Retraining):** Tự động gọi pipeline `ml/train_model.py`: gộp dữ liệu huấn luyện gốc với các nhãn do con người thẩm định (`verified_sentiment IS NOT NULL`), đào tạo lại các mô hình ứng viên, kiểm định qua **Gatekeeper** đối đầu với champion hiện tại. Nếu mô hình mới vượt trội về Macro-F1, hệ thống lập tức thăng hạng lên `@champion` mới trong MLflow; nếu không đạt, hủy đăng ký và xuất báo cáo sự cố `data/alerts/retrain_failed_*.html`.
+        *   **Cơ chế Tự phục hồi (Self-Healing Retraining):** Tự động gọi pipeline `ml/train_model.py`: gộp dữ liệu huấn luyện gốc với các nhãn do con người thẩm định (`verified_sentiment IS NOT NULL`) và **toàn bộ dữ liệu của tất cả các ngày ghi nhận trôi dạt** (`drift_metrics WHERE drift_detected >= 1` kết hợp `DRIFT_DATE`), đào tạo lại các mô hình ứng viên, kiểm định qua **Gatekeeper** đối đầu với champion hiện tại. Nếu mô hình mới vượt trội về Macro-F1, hệ thống lập tức gắn nhãn ứng viên `@candidate` (hoặc thăng hạng theo quy trình Governance); nếu không đạt, ghi nhận báo cáo sự cố `data/alerts/retrain_failed_*.html`.
     *   Ghi nhận số liệu PSI, độ tự tin trung bình, tổng số mẫu vào bảng `drift_metrics`.
     *   **Khóa trạng thái (State-Locking):** Cập nhật `is_processed = 1` cho các đánh giá vừa xử lý để không bao giờ bị tính trùng.
     *   Ghi log thông số mẻ chạy (`batch_psi_score`, `batch_avg_confidence`, `batch_row_count`) lên MLflow run `Batch_{ds}`.
@@ -477,8 +477,8 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
 ### 3️⃣ **Luồng Kích Hoạt Huấn Luyện Lại Thủ Công (Manual Retraining Trigger)**
 *   **Thời điểm kích hoạt:** Người vận hành bấm nút **"⚡ Trigger Retrain Manual"** trên sidebar giao diện Streamlit hoặc chạy lệnh `python ml/train_model.py` trong terminal/container.
 *   **Cơ chế thực thi:**
-    1.  **Thu nhận dữ liệu Active Learning:** Quét bảng `store_reviews` tìm các bản ghi đã được chuyên gia con người thẩm định hoặc sửa nhãn (`verified_sentiment IS NOT NULL` từ công cụ Active Learning Audit trên Streamlit).
-    2.  **Mở rộng tập huấn luyện (Data Augmentation):** Gộp toàn bộ nhãn người thẩm định này vào tập huấn luyện gốc `data/train_v1.csv` làm nhãn vàng (gold labels), giúp mô hình cập nhật từ vựng mới của thị trường EV.
+    1.  **Thu nhận dữ liệu Active Learning & Multi-day Drift:** Quét bảng `store_reviews` tìm các bản ghi đã được chuyên gia con người thẩm định (`verified_sentiment IS NOT NULL`), đồng thời quét bảng `drift_metrics` gom toàn bộ các mẫu đánh giá phát sinh từ **tất cả các đợt trôi dạt dữ liệu** (`drift_detected >= 1`).
+    2.  **Mở rộng tập huấn luyện (Data Augmentation):** Gộp toàn bộ nhãn người thẩm định và các mẫu trôi dạt (kèm bộ pseudo-labeler chuyên biệt cho xe điện EV) vào tập huấn luyện gốc `data/train_v1.csv`, giúp mô hình mới hấp thu đầy đủ từ vựng biến động (ví dụ: gom đủ 20 mẫu từ cả Ngày 1 và Ngày 2 trôi dạt thay vì chỉ lấy mẻ ngày cuối). Kích thước tập huấn luyện mới `train_dataset_size` được lưu trữ minh bạch trên MLflow.
     3.  **Huấn luyện đa mô hình:** Khởi tạo TF-IDF vectorizer và huấn luyện 4 thuật toán phân loại (Logistic Regression, Linear SVM, Multinomial Naive Bayes, Complement Naive Bayes / Random Forest) trên tập dữ liệu đã mở rộng.
     4.  **Đánh giá trên tập Validation chuẩn:** Đánh giá Macro-F1 và Accuracy trên tập kiểm định độc lập `data/val_v1.csv`.
     5.  **Cơ chế Gatekeeper Validation (Chốt chặn an toàn):**

@@ -17,11 +17,7 @@ import mlflow
 import mlflow.sklearn
 from mlflow.tracking import MlflowClient
 
-def main():
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///data/mlflow.db")
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment("ev-sentiment-analysis")
-    
+def load_training_data():
     # Load Vietnamese EV reviews dataset
     ev_path = os.environ.get("TRAIN_DATA_PATH", "data/ev_reviews_vietnam_1529_cleaned.csv")
     if not os.path.exists(ev_path):
@@ -46,7 +42,8 @@ def main():
     db_url = os.environ.get("DATABASE_URL", "sqlite:///data/results.db")
     
     is_postgres = "postgresql" in db_url
-    results_db_exists = os.path.exists("data/results.db")
+    db_file_path = db_url.replace("sqlite:///", "") if db_url.startswith("sqlite:///") else ""
+    results_db_exists = os.path.exists(db_file_path) if db_file_path else os.path.exists("data/results.db")
     
     if is_postgres or results_db_exists:
         from sqlalchemy import create_engine, text
@@ -66,14 +63,31 @@ def main():
             print(f" -> Skipped SQL verified reviews ingestion due to: {e}")
             verified_df = pd.DataFrame()
 
-        # 2. Fetch drift-date reviews if specified
-        drift_date = os.environ.get("DRIFT_DATE")
+        # 2. Fetch drift-date reviews across all detected drift dates
+        target_drift_dates = set()
+        env_drift_date = os.environ.get("DRIFT_DATE")
+        if env_drift_date:
+            target_drift_dates.add(str(env_drift_date).strip())
+
+        try:
+            with engine.connect() as conn:
+                res_dm = conn.execute(text("SELECT batch_date FROM drift_metrics WHERE drift_detected >= 1"))
+                for row in res_dm.fetchall():
+                    if row[0]:
+                        target_drift_dates.add(str(row[0]).strip())
+        except Exception as e_dm:
+            print(f" -> Notice: Could not query drift_metrics for drifted dates: {e_dm}")
+
+        sorted_drift_dates = sorted(list(target_drift_dates))
         drift_df = pd.DataFrame()
-        if drift_date:
-            print(f"🏷️  MLOps Feedback Loop: Scanning drifted reviews for date '{drift_date}'...")
+        if sorted_drift_dates:
+            print(f"🏷️  MLOps Feedback Loop: Scanning drifted reviews across {len(sorted_drift_dates)} date(s): {', '.join(sorted_drift_dates)}...")
             try:
                 with engine.connect() as conn:
-                    res_drift = conn.execute(text("SELECT review_text, verified_sentiment FROM store_reviews WHERE review_date = :ds"), {"ds": drift_date})
+                    placeholders = ", ".join([f":d{i}" for i in range(len(sorted_drift_dates))])
+                    params = {f"d{i}": d for i, d in enumerate(sorted_drift_dates)}
+                    sql_drift = text(f"SELECT review_text, verified_sentiment FROM store_reviews WHERE review_date IN ({placeholders})")
+                    res_drift = conn.execute(sql_drift, params)
                     drift_raw_df = pd.DataFrame(res_drift.fetchall(), columns=res_drift.keys())
                 
                 if len(drift_raw_df) > 0:
@@ -96,6 +110,7 @@ def main():
                                 sentiments.append("neutral")
                     drift_raw_df["sentiment"] = sentiments
                     drift_df = drift_raw_df[["review_text", "sentiment"]]
+                    print(f" -> Successfully ingested {len(drift_df)} reviews from drifted date(s) into retrain pool.")
             except Exception as e:
                 print(f" -> Skipped SQL drift-date ingestion due to: {e}")
 
@@ -106,6 +121,15 @@ def main():
             new_data = new_data.drop_duplicates(subset=["review_text"], keep="first")
             train_df = pd.concat([train_df, new_data], ignore_index=True)
             print(f" -> Successfully concatenated {len(new_data)} total new/verified SQL reviews! New training size: {len(train_df)}")
+
+    return train_df, val_df, test_df, hashes
+
+def main():
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///data/mlflow.db")
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment("ev-sentiment-analysis")
+    
+    train_df, val_df, test_df, hashes = load_training_data()
 
     print("Preprocessing text...")
     train_df['cleaned_text'] = train_df['review_text'].apply(clean_text)

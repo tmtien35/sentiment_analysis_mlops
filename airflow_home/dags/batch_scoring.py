@@ -234,6 +234,17 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
     drift_detected = bool(psi_score >= 0.15)
     print(f"Cumulative Daily Analysis: Total Reviews = {cumulative_count} | PSI = {psi_score:.4f} | Drift Detected = {drift_detected}")
     
+    with engine.begin() as conn:
+        # Idempotently update drift metrics for this batch run (overwrites previously recorded metrics for today)
+        conn.execute(text("DELETE FROM drift_metrics WHERE batch_date = :ds"), {"ds": ds})
+        conn.execute(text("INSERT INTO drift_metrics VALUES (:batch_date, :row_count, :avg_confidence, :psi_score, :drift_detected)"), {
+            "batch_date": ds, "row_count": int(cumulative_count), "avg_confidence": float(avg_confidence), "psi_score": float(psi_score), "drift_detected": 1 if drift_detected else 0
+        })
+        
+        # State-Locking: Mark only the pending reviews as processed
+        print(f"State-Locking: Marking {pending_count} new reviews as processed...")
+        conn.execute(text("UPDATE store_reviews SET is_processed = 1 WHERE is_processed = 0 AND review_date = :ds"), {"ds": ds})
+
     # --- CHECK RULES: PERSISTENT DRIFT EVALUATION ---
     is_persistent_drift = False
     if drift_detected:
@@ -286,17 +297,6 @@ def run_batch_scoring(ds: str = None, auto_retrain: bool = True):
             print(f"ℹ️  [SELF-HEALING] Retraining skipped for {ds}: Isolated drift spike (awaiting persistent drift confirmation).")
         else:
             print(f"ℹ️  [SELF-HEALING] Automated retraining skipped for {ds} (auto_retrain={auto_retrain}, ENABLE_SELF_HEALING={os.environ.get('ENABLE_SELF_HEALING', 'true')}).")
-            
-    with engine.begin() as conn:
-        # Idempotently update drift metrics for this batch run (overwrites previously recorded metrics for today)
-        conn.execute(text("DELETE FROM drift_metrics WHERE batch_date = :ds"), {"ds": ds})
-        conn.execute(text("INSERT INTO drift_metrics VALUES (:batch_date, :row_count, :avg_confidence, :psi_score, :drift_detected)"), {
-            "batch_date": ds, "row_count": int(cumulative_count), "avg_confidence": float(avg_confidence), "psi_score": float(psi_score), "drift_detected": 1 if drift_detected else 0
-        })
-        
-        # State-Locking: Mark only the pending reviews as processed
-        print(f"State-Locking: Marking {pending_count} new reviews as processed...")
-        conn.execute(text("UPDATE store_reviews SET is_processed = 1 WHERE is_processed = 0 AND review_date = :ds"), {"ds": ds})
         
     print("Logging batch run to MLflow...")
     try:

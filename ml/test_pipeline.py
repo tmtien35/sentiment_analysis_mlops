@@ -330,3 +330,102 @@ def test_robust_champion_model_loader_and_continuous_confidences():
     finally:
         loader_mod.mlflow.sklearn.load_model = orig_load
 
+
+def test_multiday_drift_data_ingestion_in_retraining():
+    """
+    Test 11: Verify that when multiple drift days occur (e.g. Day 1 and Day 2),
+    ml/train_model.py ingests reviews from ALL detected drift dates (not just the last triggered day),
+    ensuring all drifted samples are fed into the retrain dataset.
+    """
+    import os
+    import pandas as pd
+    from sqlalchemy import create_engine, text
+    from ml.train_model import load_training_data
+    
+    test_db_file = "test_multiday_drift.db"
+    test_db = f"sqlite:///{test_db_file}"
+    orig_db_url = os.environ.get("DATABASE_URL")
+    orig_drift_date = os.environ.get("DRIFT_DATE")
+    engine = None
+    
+    try:
+        if os.path.exists(test_db_file):
+            try:
+                os.remove(test_db_file)
+            except Exception:
+                pass
+                
+        os.environ["DATABASE_URL"] = test_db
+        os.environ["DRIFT_DATE"] = "2026-09-26"  # Simulating Day 2 trigger
+        
+        engine = create_engine(test_db)
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS store_reviews"))
+            conn.execute(text("DROP TABLE IF EXISTS drift_metrics"))
+            conn.execute(text("""
+                CREATE TABLE store_reviews (
+                    review_id TEXT PRIMARY KEY,
+                    review_date TEXT,
+                    category TEXT,
+                    review_text TEXT,
+                    verified_sentiment TEXT,
+                    is_processed INTEGER DEFAULT 0
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE drift_metrics (
+                    batch_date TEXT PRIMARY KEY,
+                    row_count INTEGER,
+                    avg_confidence REAL,
+                    psi_score REAL,
+                    drift_detected INTEGER
+                )
+            """))
+            # Insert Day 1 and Day 2 drift metrics
+            conn.execute(text("INSERT INTO drift_metrics VALUES ('2026-09-25', 10, 0.70, 0.18, 1)"))
+            conn.execute(text("INSERT INTO drift_metrics VALUES ('2026-09-26', 10, 0.68, 0.22, 1)"))
+            
+            # Insert 10 reviews for Day 1
+            for i in range(10):
+                conn.execute(text(
+                    "INSERT INTO store_reviews VALUES (:id, '2026-09-25', 'pin_sac', :txt, NULL, 1)"
+                ), {"id": f"rev_day1_{i}", "txt": f"Lỗi sạc pin ngày 1 số {i} quá tệ"})
+                
+            # Insert 10 reviews for Day 2
+            for i in range(10):
+                conn.execute(text(
+                    "INSERT INTO store_reviews VALUES (:id, '2026-09-26', 'pin_sac', :txt, NULL, 1)"
+                ), {"id": f"rev_day2_{i}", "txt": f"Lỗi tụt pin ngày 2 số {i} rất kém"})
+                
+        # Call load_training_data
+        train_df, val_df, test_df, hashes = load_training_data()
+        
+        # Verify that samples from BOTH Day 1 and Day 2 are included in train_df
+        day1_in_train = [t for t in train_df['review_text'] if "ngày 1" in t]
+        day2_in_train = [t for t in train_df['review_text'] if "ngày 2" in t]
+        
+        assert len(day1_in_train) == 10, f"Expected 10 reviews from Day 1, got {len(day1_in_train)}"
+        assert len(day2_in_train) == 10, f"Expected 10 reviews from Day 2, got {len(day2_in_train)}"
+        assert len(day1_in_train) + len(day2_in_train) == 20, "Total newly ingested drift reviews must equal 20"
+        
+    finally:
+        if orig_db_url:
+            os.environ["DATABASE_URL"] = orig_db_url
+        else:
+            os.environ.pop("DATABASE_URL", None)
+            
+        if orig_drift_date:
+            os.environ["DRIFT_DATE"] = orig_drift_date
+        else:
+            os.environ.pop("DRIFT_DATE", None)
+            
+        if engine:
+            engine.dispose()
+            
+        if os.path.exists(test_db_file):
+            try:
+                os.remove(test_db_file)
+            except Exception:
+                pass
+
+
