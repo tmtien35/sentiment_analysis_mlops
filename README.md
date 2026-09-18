@@ -297,26 +297,22 @@ Hệ thống tích hợp cơ chế tự động gửi email cảnh báo về hò
    ```bash
    cp .env.example .env
    ```
-2. **Lấy Mật khẩu ứng dụng (Gmail App Password - 1 Phút):**
-   * Truy cập trang bảo mật tài khoản Google: [https://myaccount.google.com/security](https://myaccount.google.com/security)
-   * Bật **Xác minh 2 bước** (*2-Step Verification*) nếu tài khoản chưa bật.
-   * Truy cập liên kết tạo mật khẩu ứng dụng: [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
-   * Đặt tên ứng dụng (ví dụ: `MLOps Alert`) và nhấn **Tạo (Create)**. Google sẽ cấp mã 16 chữ cái (ví dụ: `abcd efgh ijkl mnop`).
-3. **Mở tệp `.env` để điền thông tin:**
+2. **Điền thông tin tài khoản Gmail vào `.env`:**
    ```bash
    nano .env
    ```
-   *Điền 3 dòng cấu hình sau rồi lưu lại (`Ctrl + O` -> `Enter` -> `Ctrl + X`):*
+   *Điền 3 dòng sau rồi lưu lại (`Ctrl + O` -> `Enter` -> `Ctrl + X`):*
    ```ini
    SMTP_SENDER=email_cua_ban@gmail.com
    SMTP_PASSWORD=16_chu_cai_vua_tao
    SMTP_RECIPIENT=email_nhan_canh_bao@gmail.com
    ```
-4. **Kiểm tra đường truyền gửi email trong 3 giây:**
+   *(Xem hướng dẫn 1 phút lấy Mật khẩu ứng dụng 16 chữ cái từ Google tại Bước 2.4 ở trên)*.
+3. **Kiểm tra đường truyền gửi email trong 3 giây:**
    ```bash
    python3 ml/test_email_smtp.py
    ```
-   *(Hệ thống hỗ trợ cơ chế chuyển cổng thông minh: ưu tiên Port 587 STARTTLS, nếu bị chặn sẽ tự động thử tiếp Port 465 SSL. Khi test thành công, email kiểm thử sẽ xuất hiện ngay trong hòm thư của bạn).*
+   *(Hệ thống hỗ trợ chuyển cổng thông minh Port 587 STARTTLS -> Port 465 SSL. Khi test thành công, email kiểm thử sẽ xuất hiện ngay trong hòm thư cá nhân của bạn).*
 
 ---
 
@@ -452,7 +448,7 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
     *   **Khi phát hiện Data Drift (`psi_score >= 0.15`):**
         *   Tạo báo cáo cảnh báo HTML tại `data/alerts/drift_alert_<date>.html`.
         *   Gửi email cảnh báo thời gian thực qua Gmail SMTP (nếu cấu hình `SMTP_PASSWORD`).
-        *   **Cơ chế Tự phục hồi (Self-Healing Retraining):** Tự động gọi pipeline `ml/train_model.py`: gộp dữ liệu huấn luyện gốc với các nhãn do con người thẩm định (`verified_sentiment IS NOT NULL`) và **toàn bộ dữ liệu của tất cả các ngày ghi nhận trôi dạt** (`drift_metrics WHERE drift_detected >= 1` kết hợp `DRIFT_DATE`), đào tạo lại các mô hình ứng viên, kiểm định qua **Gatekeeper** đối đầu với champion hiện tại. Nếu mô hình mới vượt trội về Macro-F1, hệ thống lập tức gắn nhãn ứng viên `@candidate` (hoặc thăng hạng theo quy trình Governance); nếu không đạt, ghi nhận báo cáo sự cố `data/alerts/retrain_failed_*.html`.
+        *   **Cơ chế Tự phục hồi (Self-Healing Retraining):** Tự động gọi pipeline `ml/train_model.py`: gộp dữ liệu huấn luyện gốc với các nhãn do con người thẩm định (`verified_sentiment IS NOT NULL`) và **toàn bộ dữ liệu của tất cả các ngày ghi nhận trôi dạt** (`drift_metrics WHERE drift_detected >= 1` kết hợp `DRIFT_DATE`), huấn luyện lại mô hình Champion (Logistic Regression) và đánh giá đối đầu qua **Gatekeeper** trên tập validation chuẩn cố định. Nếu mô hình mới vượt trội về Macro-F1, hệ thống kích hoạt **Human Approval Gateway**: gắn nhãn ứng viên `@candidate` với tag `pending_human_approval` (không tự thăng hạng để bảo đảm an toàn vận hành), chờ Admin phê duyệt trên Streamlit để bắt đầu phân luồng Canary (90/10); nếu không đạt (thua Champion), kích hoạt **Smart Rejection**: từ chối mô hình mới, bảo lưu Candidate mạnh nhất và ghi nhận báo cáo sự cố `data/alerts/retrain_failed_*.html`.
     *   Ghi nhận số liệu PSI, độ tự tin trung bình, tổng số mẫu vào bảng `drift_metrics`.
     *   **Khóa trạng thái (State-Locking):** Cập nhật `is_processed = 1` cho các đánh giá vừa xử lý để không bao giờ bị tính trùng.
     *   Ghi log thông số mẻ chạy (`batch_psi_score`, `batch_avg_confidence`, `batch_row_count`) lên MLflow run `Batch_{ds}`.
@@ -478,14 +474,14 @@ Dự án hỗ trợ **hai chế độ vận hành độc lập**, phục vụ li
 *   **Thời điểm kích hoạt:** Người vận hành bấm nút **"⚡ Trigger Retrain Manual"** trên sidebar giao diện Streamlit hoặc chạy lệnh `python ml/train_model.py` trong terminal/container.
 *   **Cơ chế thực thi:**
     1.  **Thu nhận dữ liệu Active Learning & Multi-day Drift:** Quét bảng `store_reviews` tìm các bản ghi đã được chuyên gia con người thẩm định (`verified_sentiment IS NOT NULL`), đồng thời quét bảng `drift_metrics` gom toàn bộ các mẫu đánh giá phát sinh từ **tất cả các đợt trôi dạt dữ liệu** (`drift_detected >= 1`).
-    2.  **Mở rộng tập huấn luyện (Data Augmentation):** Gộp toàn bộ nhãn người thẩm định và các mẫu trôi dạt (kèm bộ pseudo-labeler chuyên biệt cho xe điện EV) vào tập huấn luyện gốc `data/train_v1.csv`, giúp mô hình mới hấp thu đầy đủ từ vựng biến động (ví dụ: gom đủ 20 mẫu từ cả Ngày 1 và Ngày 2 trôi dạt thay vì chỉ lấy mẻ ngày cuối). Kích thước tập huấn luyện mới `train_dataset_size` được lưu trữ minh bạch trên MLflow.
-    3.  **Huấn luyện đa mô hình:** Khởi tạo TF-IDF vectorizer và huấn luyện 4 thuật toán phân loại (Logistic Regression, Linear SVM, Multinomial Naive Bayes, Complement Naive Bayes / Random Forest) trên tập dữ liệu đã mở rộng.
-    4.  **Đánh giá trên tập Validation chuẩn:** Đánh giá Macro-F1 và Accuracy trên tập kiểm định độc lập `data/val_v1.csv`.
-    5.  **Cơ chế Gatekeeper Validation (Chốt chặn an toàn):**
-        *   So sánh Macro-F1 của mô hình ứng viên tốt nhất với mô hình `@champion` đang phục vụ thực tế.
-        *   **Đạt chuẩn (Pass):** Nếu `Macro-F1 (New) >= Macro-F1 (Champion)`, mô hình mới được đăng ký phiên bản tiếp theo vào MLflow Model Registry và tự động thăng hạng lên `@champion`.
-        *   **Không đạt (Fail):** Nếu mô hình mới có hiệu năng thấp hơn Champion cũ, Gatekeeper từ chối tự động thăng hạng để bảo đảm độ ổn định hệ thống. Thay vào đó, mô hình mới được đăng ký với alias `@candidate` (Contender) và ghi nhận báo cáo sự cố `data/alerts/retrain_failed_YYYY_MM_DD_HHMM.html`. Trên giao diện Streamlit xuất hiện bảng Scorecard đối đầu trực tiếp kèm nút **`⚠️ Chấp nhận đánh đổi: Ép lên Champion 🏆`** cho phép Admin chủ động đưa Contender lên thay thế Champion nếu thấy hợp lý về mặt nghiệp vụ (Break-Glass Override).
-    6.  **Đồng bộ Nạp Nóng Mô Hình Tức Thì (Zero-Downtime Hot-Reload):** Pipeline huấn luyện (`ml/train_model.py`) và giao diện Streamlit tự động gửi tín hiệu `POST /reload-models` sang container FastAPI. Mô hình Champion mới ngay lập tức được tải từ MLflow Registry vào bộ nhớ RAM phục vụ thực tế trong vòng vài mili-giây mà không cần khởi động lại container hay làm gián đoạn API.
+    2.  **Mở rộng tập huấn luyện (Data Augmentation):** Gộp toàn bộ nhãn người thẩm định và các mẫu trôi dạt (kèm bộ pseudo-labeler chuyên biệt cho xe điện EV) vào tập huấn luyện phân tầng (tách 80% từ `data/ev_reviews_vietnam_1529_cleaned.csv`), giúp mô hình mới hấp thu đầy đủ từ vựng biến động (ví dụ: gom đủ 20 mẫu từ cả Ngày 1 và Ngày 2 trôi dạt thay vì chỉ lấy mẻ ngày cuối). Kích thước tập huấn luyện mới `train_dataset_size` được lưu trữ minh bạch trên MLflow.
+    3.  **Huấn luyện mô hình Champion (Logistic Regression):** Tinh chỉnh mô hình Logistic Regression chuẩn (`C=2.0`, `class_weight='balanced'`, `max_iter=1000`, `random_state=42`) kết hợp pipeline TF-IDF (tách từ ghép PyVi, 8,000 n-gram, `sublinear_tf=True`) trên tập dữ liệu đã mở rộng. *(Các thuật toán đối chiếu khác như Linear SVM, Naive Bayes, Random Forest được chuẩn hóa qua kịch bản benchmark độc lập `scripts/benchmark_ev_models.py`)*.
+    4.  **Đánh giá trên tập Validation chuẩn cố định:** Đánh giá Macro-F1 và Accuracy trên tập kiểm định độc lập cố định phân tầng 10% (157 mẫu chuẩn của `data/ev_reviews_vietnam_1529_cleaned.csv`), bảo đảm đề thi không bị thay đổi và không rò rỉ dữ liệu.
+    5.  **Cơ chế Chốt chặn An toàn Gatekeeper & Human Approval Gateway:**
+        *   So sánh Macro-F1 của mô hình mới với mô hình `@champion` đang phục vụ thực tế trên cùng tập validation (`val_df`).
+        *   **Đạt chuẩn (Pass - `Macro-F1 (New) > Macro-F1 (Champion) + 0.0001`):** Hệ thống **tuyệt đối KHÔNG tự động cướp quyền Champion** (Zero Auto-Promotion Policy). Thay vào đó, mô hình mới được cấp alias `@candidate` kèm tag `approval_status = "pending_human_approval"`. Hệ thống tiếp tục phục vụ 100% bằng Champion cũ và gửi thông báo lên Streamlit để chờ Admin phê duyệt kích hoạt Canary 90/10.
+        *   **Không đạt chuẩn (Fail - `Macro-F1 (New) <= Macro-F1 (Champion)`):** Kích hoạt cơ chế **Smart Rejection**: mô hình mới bị từ chối (`approval_status = "rejected"`), bảo lưu ứng viên Candidate tốt nhất trước đó (nếu có), và xuất báo cáo sự cố `data/alerts/retrain_failed_YYYY_MM_DD_HHMM.html`. Trên Streamlit hiển thị thẻ cảnh báo đỏ, hỗ trợ Admin bấm `🗑️ Dismiss Alert` hoặc dùng chế độ ghi đè khẩn cấp `⚠️ Break-Glass Force Promote` nếu xét thấy cần thiết về mặt nghiệp vụ.
+    6.  **Đồng bộ Nạp Nóng Mô Hình Tức Thì (Zero-Downtime Hot-Reload):** Khi mô hình được thăng hạng hoặc Canary được kích hoạt/hủy bỏ trên Streamlit, hệ thống tự động gửi tín hiệu `POST /reload-models` sang container FastAPI. Mô hình mới ngay lập tức được tải từ MLflow Registry vào bộ nhớ RAM phục vụ thực tế trong vòng vài mili-giây mà không cần khởi động lại container hay làm gián đoạn API.
     7.  **Ghi chép MLflow Tracking:** Toàn bộ siêu tham số, chỉ số đánh giá, kích thước tập dữ liệu (`train_dataset_size`), và biểu đồ Confusion Matrix được lưu trữ đầy đủ trên MLflow.
 
 ---
@@ -518,7 +514,7 @@ Mọi lần huấn luyện thành công và vượt qua chốt chặn an toàn G
 
 ### **4. Báo Cáo Sự Cố Huấn Luyện (Nhật Ký Gatekeeper Chặn Nâng Cấp)**
 Nếu mô hình ứng viên mới không vượt qua được mô hình Champion hiện tại, chốt chặn an toàn Gatekeeper sẽ hủy quá trình nâng cấp tự động và xuất báo cáo sự cố định dạng HTML.
-*   **Vị trí kiểm tra:** Trong thư mục **`data/alerts/`** trên ổ đĩa máy chủ.
+*   **Vị trí kiểm tra:** Trực tiếp trên giao diện **Streamlit Dashboard** (thẻ cảnh báo sự cố màu đỏ kèm Bảng đối chiếu chỉ số Scorecard) hoặc xem tệp báo cáo sự cố HTML được sinh tại `data/alerts/`.
 *   **Cách xem:** Tìm các tệp có định dạng `retrain_failed_YYYY_MM_DD_HHMM.html`. Báo cáo này so sánh song song điểm số Macro-F1 của cả hai mô hình, giải thích rõ nguyên nhân vì sao bản cập nhật bị chặn lại nhằm bảo đảm an toàn cho tầng phục vụ trực tuyến (Zero Downtime & Zero Regression).
 
 ---
@@ -550,7 +546,7 @@ Kiểm tra lại bằng lệnh `docker compose version` (kết quả hiển th�
 ### 🚨 2. Lỗi SQLite: `unable to open database file`
 Ở các phiên bản trước, việc mount trực tiếp một tệp chưa tồn tại vào container (như `- ./mlflow.db:/app/mlflow.db`) có thể khiến Docker tạo nhầm `mlflow.db` thành một **thư mục**.
 
-Để xử lý triệt để vấn đề này, **kiến trúc dự án đã quy hoạch toàn bộ việc lưu trữ SQLite (cả `results.db` và `mlflow.db`) vào thư mục chung `./data/`**, được mount ở cấp độ thư mục `- ./data:/app/data`. Cách này đảm bảo dữ liệu luôn được lưu bền vững 100%, không bị xung đột tệp-thư mục và chạy trơn tru ngay từ lần đầu!
+Để xử lý triệt để vấn đề này, **kiến trúc dự án đã quy hoạch toàn bộ việc lưu trữ dữ liệu tệp và SQLite (như `mlflow.db` và `results.db` ở chế độ local) vào thư mục chung `./data/`**, được mount ở cấp độ thư mục `- ./data:/app/data` (ở chế độ Docker Compose đầy đủ, dữ liệu review và metrics được quản trị tập trung trên dịch vụ **PostgreSQL 15** `results_db`). Cách này đảm bảo dữ liệu luôn được lưu bền vững 100%, không bị xung đột tệp-thư mục và chạy trơn tru ngay từ lần đầu!
 
 Nếu gặp lỗi này trên VM cũ, bạn chỉ cần xóa thư mục rác do Docker tạo ra:
 ```bash
@@ -565,18 +561,18 @@ rm -rf mlflow.db
     *** !!!! Please make sure that all your Airflow components (e.g. schedulers, webservers, workers) have the same 'secret_key' configured in 'webserver' section
     ```
 *   **Nguyên nhân:** Khi không cấu hình tường minh biến môi trường `AIRFLOW__WEBSERVER__SECRET_KEY`, container `airflow-webserver` và container `airflow-scheduler` sẽ tự động sinh hai khóa bảo mật JWT ngẫu nhiên khác nhau khi khởi động. Do đó, Webserver bị từ chối quyền (403 Forbidden) khi gọi API lấy log nội bộ từ Scheduler (port 8793).
-*   **Cách khắc phục:** Cấu hình biến môi trường cố định và đồng bộ `AIRFLOW__WEBSERVER__SECRET_KEY: "mlops_shared_jwt_secret_key_fixed_9988"` trong cả 2 dịch vụ `airflow-webserver` và `airflow-scheduler` tại `docker-compose.yml`. Đồng thời, các hàm trong DAG `batch_scoring.py` và `crawl_feed.py` được tối ưu hóa để tự động chuẩn hóa đường dẫn tuyệt đối theo thư mục gốc của dự án (`project_root`), bảo đảm truy xuất đúng cơ sở dữ liệu `data/mlflow.db` và `data/results.db` ngay cả khi Airflow chuyển thư mục làm việc nội bộ sang `airflow_home`.
+*   **Cách khắc phục:** Cấu hình biến môi trường cố định và đồng bộ `AIRFLOW__WEBSERVER__SECRET_KEY: "mlops_shared_jwt_secret_key_fixed_9988"` trong cả 2 dịch vụ `airflow-webserver` và `airflow-scheduler` tại `docker-compose.yml`. Đồng thời, các hàm trong DAG `batch_scoring.py` và `crawl_feed.py` được tối ưu hóa để tự động chuẩn hóa đường dẫn tuyệt đối theo thư mục gốc của dự án (`project_root`), bảo đảm truy xuất đúng cơ sở dữ liệu (PostgreSQL qua `DATABASE_URL` trong Docker hoặc `data/results.db` ở chế độ local, kết hợp `data/mlflow.db`) ngay cả khi Airflow chuyển thư mục làm việc nội bộ sang `airflow_home`.
 
 ### 🚨 4. Lỗi Độ Tự Tin Bị Cố Định 0.6 / 0.9 (Hiện Tượng Fallback Do Lệch Đường Dẫn Windows/Linux Trong MLflow)
 *   **Triệu chứng:** Khi xem bảng dữ liệu dự đoán trên Streamlit Dashboard hoặc cơ sở dữ liệu, các bản ghi mẻ chạy mới nhất hiển thị độ tự tin `confidence` chỉ toàn là con số làm tròn cứng `0.6` hoặc `0.9`, thay vì các xác suất liên tục thực nghiệm (như `0.7269`, `0.8034`, `0.8705` của mô hình Champion).
 *   **Nguyên nhân gốc rễ (Root Cause):**
-    1. Khi huấn luyện mô hình trên môi trường Windows (`ml/train_model.py`), MLflow tự động lưu đường dẫn tuyệt đối của máy chủ Windows (`file:D:/MLOps/capstone-project/mlruns/...`) vào cơ sở dữ liệu `mlflow.db` và tệp `MLmodel`.
-    2. Khi Airflow hoặc FastAPI chạy bên trong Docker Container (môi trường Linux `/app`), hàm `mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")` cố gắng truy xuất đường dẫn `D:/...`. Trên Linux không có ổ đĩa `D:`, dẫn đến lỗi `FileNotFoundError`.
+    1. Khi huấn luyện mô hình trên môi trường máy chủ cục bộ (`ml/train_model.py`), MLflow mặc định có thể ghi nhận đường dẫn tuyệt đối của máy host vào cơ sở dữ liệu `mlflow.db` và tệp `MLmodel`.
+    2. Khi Airflow hoặc FastAPI chạy bên trong Docker Container (môi trường Linux `/app`), hàm `mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")` cố gắng truy xuất theo đường dẫn tuyệt đối ngoài máy host, dẫn đến lỗi `FileNotFoundError`.
     3. Nhằm bảo đảm hệ thống không bị crash đột ngột (Zero Crash), tác vụ `batch_scoring` kích hoạt bộ phân loại từ khóa dự phòng (`_rule_predict`), gán cứng xác suất `0.90` (nếu có từ khóa tích cực/tiêu cực) và `0.60` (nếu là trung tính).
 *   **Cách khắc phục toàn diện & Chuẩn hóa Đa môi trường (Environment-Agnostic):**
     1. **Chuẩn hóa đường dẫn tương đối trong MLflow (`scripts/sanitize_mlflow_paths.py`):**
-       - Tự động quét và chuyển đổi toàn bộ `artifact_uri`, `artifact_location`, `storage_location` trong `data/mlflow.db` và 61 tệp cấu hình `MLmodel` trong `mlruns/` thành đường dẫn tương đối portable (`mlruns/...`).
-       - Nhờ đó, hàm nguyên bản `mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")` hoạt động trơn tru ngay từ **Tier 1** ở cả máy chủ Windows host và môi trường container Docker Linux (`/app`).
+       - Tự động quét và chuyển đổi toàn bộ `artifact_uri`, `artifact_location`, `storage_location` trong `data/mlflow.db` và các tệp cấu hình `MLmodel` trong `mlruns/` thành đường dẫn tương đối portable (`mlruns/...`).
+       - Nhờ đó, hàm nguyên bản `mlflow.sklearn.load_model("models:/ev-sentiment-model@champion")` hoạt động trơn tru ngay từ **Tier 1** ở cả máy chủ host và môi trường container Docker Linux (`/app`).
     2. **Đồng bộ biến môi trường `MLFLOW_TRACKING_URI` trên Docker Compose:**
        - Cấu hình thống nhất `MLFLOW_TRACKING_URI: http://mlflow:5000` cho toàn bộ các dịch vụ: `fastapi`, `streamlit`, `airflow-webserver`, và `airflow-scheduler`.
        - Ở chế độ local không dùng Docker, các dịch vụ tự động fallback linh hoạt sang file SQLite cục bộ `sqlite:///data/mlflow.db`.
@@ -620,7 +616,7 @@ Trong giai đoạn nghiên cứu và đánh giá thực nghiệm, chúng tôi đ
 | **Complement Naive Bayes** | 0.9203 | 0.8789 ± 0.0147 | 91.50% | Contender |
 | **Random Forest (150 cây)** | 0.9203 | 0.8752 ± 0.0123 | 91.50% | Baseline *(Dễ bị đánh lừa bởi câu tương phản)* |
 
-*Mô hình Logistic Regression chiến thắng đã được kiểm tra độc lập một lần duy nhất trên tập Test mù (153 đánh giá chưa từng thấy), đạt **Accuracy: 88.24% và Macro-F1: 0.8830** (F1 Tiêu cực: 0.9114, F1 Trung tính: 0.8269, F1 Tích cực: 0.9106).*
+*Mô hình Logistic Regression chiến thắng đã được kiểm tra độc lập một lần duy nhất trên tập Test mù (157 đánh giá chưa từng thấy - phân tầng 10% độc lập từ 1,570 mẫu), đạt **Accuracy: 88.24% và Macro-F1: 0.8830** (F1 Tiêu cực: 0.9114, F1 Trung tính: 0.8269, F1 Tích cực: 0.9106).*
 
 > **Cập Nhật Phiên Bản Champion v2 (Tối Ưu Ngữ Nghĩa Xe Điện & Khử Thiên Lệch Trung Tính):**  
 > Để khắc phục hiện tượng thiên lệch gán nhãn trung tính (Neutral Bias) do từ vựng xe điện phân bố không đồng đều, mô hình Champion v2 được nâng cấp với:  
@@ -729,8 +725,6 @@ Không dừng lại ở việc phát hiện trôi dạt dữ liệu cơ bản nh
     *   **Tiêu cực (Negative):** 423 đánh giá (26.94%)
 *   **Phân phối thương hiệu:** VinFast (447), BYD (301), Tesla (219), MG (170), Hyundai (156), Kia (151), Wuling (126).
 *   **Phân phối nguồn thu thập:** YouTube (327), Đại lý xe (322), Diễn đàn ô tô (318), Facebook (302), Trang web đánh giá (301).
-
-> **Lưu ý về thư mục `docs/`:** Thư mục `docs/` chứa tài liệu báo cáo (Slide thuyết trình `TMA Slide-Session 10.ppt`, bảng phân công `MLOPS-Projects.xlsx`, báo cáo benchmark `benchmark_ev_results.md`, và file raw backup 10,000 dòng) được cấu hình **hoàn toàn chỉ lưu trữ trên máy tính cá nhân (local)** và được thêm vào `.gitignore` để không bị đẩy lên Git.
 
 ---
 
